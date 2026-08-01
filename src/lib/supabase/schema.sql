@@ -18,27 +18,74 @@ create table if not exists public.merchants (
   created_at timestamptz not null default now()
 );
 
+-- Platform-owned product taxonomy. Created/edited only by admin/super_admin;
+-- merchants select from this tree. Seeded with the v1 food categories.
+create table if not exists public.categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  slug text not null unique,
+  sort_order int not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+insert into public.categories (name, slug, sort_order) values
+  ('All', 'all', 0),
+  ('Fresh Produce', 'fresh-produce', 1),
+  ('Meat & Seafood', 'meat-seafood', 2),
+  ('Dairy & Eggs', 'dairy-eggs', 3),
+  ('Bakery', 'bakery', 4),
+  ('Pantry Staples', 'pantry-staples', 5),
+  ('Beverages', 'beverages', 6),
+  ('Snacks', 'snacks', 7)
+on conflict (slug) do nothing;
+
 create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   merchant_id uuid not null references public.merchants(id) on delete cascade,
+  category_id uuid references public.categories(id),
   name text not null,
   description text,
   category text,
+  sku text,
+  compare_at_price_cents bigint,
   image_url text,
   price_cents bigint not null default 0,
   stock_int bigint not null default 0,
+  low_stock_threshold bigint not null default 5,
   status text not null default 'draft' check (status in ('draft','active','archived')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.profiles(id) on delete cascade,
   reseller_id uuid references public.profiles(id),
-  status text not null default 'pending' check (status in ('pending','paid','fulfilled','cancelled')),
+  status text not null default 'pending'
+    check (status in ('pending','paid','confirmed','processing','shipped','delivered','cancelled','refunded')),
   total_cents bigint not null default 0,
+  tracking_number text,
+  carrier text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Append-only audit trail for every order status transition. A row is
+-- written atomically with each orders.status change (see transition_order()).
+create table if not exists public.order_status_history (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  from_status text,
+  to_status text not null,
+  actor_id uuid references public.profiles(id),
+  actor_role text not null default 'system',
+  note text,
   created_at timestamptz not null default now()
 );
+
+create index if not exists order_status_history_order_idx
+  on public.order_status_history (order_id, created_at);
 
 create table if not exists public.wallet_ledger (
   id uuid primary key default gen_random_uuid(),
@@ -129,6 +176,15 @@ create policy "merchants_update_admin" on public.merchants for update using (
 drop policy if exists "merchants_select_public_verified" on public.merchants;
 create policy "merchants_select_public_verified" on public.merchants for select using (status = 'verified');
 
+alter table public.categories enable row level security;
+
+drop policy if exists "categories_select_active" on public.categories;
+create policy "categories_select_active" on public.categories for select using (is_active = true);
+drop policy if exists "categories_admin_all" on public.categories;
+create policy "categories_admin_all" on public.categories for all using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+
 drop policy if exists "products_select_active_or_own" on public.products;
 create policy "products_select_active_or_own" on public.products for select using (
   (status = 'active' and exists (
@@ -160,6 +216,18 @@ create policy "orders_update_admin" on public.orders for update using (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
 ) with check (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+-- Merchants can see orders that contain their own products (via the
+-- order_items -> products -> merchants ownership chain).
+drop policy if exists "orders_select_merchant" on public.orders;
+create policy "orders_select_merchant" on public.orders for select using (
+  exists (
+    select 1
+    from public.order_items oi
+    join public.products p on p.id = oi.product_id
+    join public.merchants m on m.id = p.merchant_id
+    where oi.order_id = orders.id and m.owner_id = auth.uid()
+  )
 );
 
 -- Ledger tables are select-only for owners; writes are performed by trusted server-side code only.
@@ -210,6 +278,16 @@ create policy "order_items_select_via_order" on public.order_items for select us
 drop policy if exists "order_items_insert_via_order" on public.order_items;
 create policy "order_items_insert_via_order" on public.order_items for insert with check (
   order_id in (select id from public.orders where customer_id = auth.uid())
+);
+-- Merchants can read order_items for orders that contain their own products.
+drop policy if exists "order_items_select_merchant" on public.order_items;
+create policy "order_items_select_merchant" on public.order_items for select using (
+  exists (
+    select 1
+    from public.products p
+    join public.merchants m on m.id = p.merchant_id
+    where p.id = order_items.product_id and m.owner_id = auth.uid()
+  )
 );
 
 -- Atomic checkout: validates stock, creates order + order_items, decrements stock,
@@ -410,3 +488,166 @@ end;
 $$;
 
 grant execute on function public.notify(uuid, text, text, text) to authenticated;
+
+-- Order status history: append-only audit trail. Readable by anyone who can
+-- read the parent order (customer/reseller via order ownership, merchant via
+-- the product chain, staff via admin/finance roles).
+
+alter table public.order_status_history enable row level security;
+
+drop policy if exists "order_status_history_select_via_order" on public.order_status_history;
+create policy "order_status_history_select_via_order" on public.order_status_history for select using (
+  order_id in (
+    select o.id from public.orders o
+    where auth.uid() = o.customer_id or auth.uid() = o.reseller_id
+  )
+);
+drop policy if exists "order_status_history_select_merchant" on public.order_status_history;
+create policy "order_status_history_select_merchant" on public.order_status_history for select using (
+  exists (
+    select 1
+    from public.order_items oi
+    join public.products p on p.id = oi.product_id
+    join public.merchants m on m.id = p.merchant_id
+    where oi.order_id = order_status_history.order_id and m.owner_id = auth.uid()
+  )
+);
+drop policy if exists "order_status_history_select_admin" on public.order_status_history;
+create policy "order_status_history_select_admin" on public.order_status_history for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin', 'finance_admin'))
+);
+
+-- Single, audited path for order status transitions. Validates the caller's
+-- role against the state machine, updates orders.status, writes an atomic
+-- order_status_history row, restocks inventory on cancel/refund, and inserts
+-- a notification to the order's customer. SECURITY DEFINER because it spans
+-- several RLS-protected tables; it re-implements authorization itself.
+create or replace function public.transition_order(
+  p_order_id uuid,
+  p_to_status text,
+  p_note text default null,
+  p_tracking_number text default null,
+  p_carrier text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text;
+  v_order record;
+  v_from_status text;
+  v_allowed boolean := false;
+  v_history_id uuid;
+begin
+  select role into v_role from public.profiles where id = auth.uid();
+  if v_role is null then
+    raise exception 'not authorized';
+  end if;
+
+  select * into v_order from public.orders where id = p_order_id for update;
+  if v_order is null then
+    raise exception 'ORDER_NOT_FOUND';
+  end if;
+
+  v_from_status := v_order.status;
+
+  -- State machine: only legal forward transitions are allowed.
+  if v_from_status = 'pending' then
+    v_allowed := p_to_status in ('paid', 'confirmed', 'cancelled');
+  elsif v_from_status = 'paid' then
+    v_allowed := p_to_status in ('confirmed', 'fulfilled', 'cancelled');
+  elsif v_from_status = 'confirmed' then
+    v_allowed := p_to_status in ('processing', 'cancelled');
+  elsif v_from_status = 'processing' then
+    v_allowed := p_to_status in ('shipped', 'cancelled');
+  elsif v_from_status = 'shipped' then
+    v_allowed := p_to_status in ('delivered', 'cancelled');
+  elsif v_from_status = 'delivered' then
+    v_allowed := p_to_status in ('refunded');
+  else
+    v_allowed := false;
+  end if;
+
+  if not v_allowed then
+    raise exception 'INVALID_TRANSITION: % to %', v_from_status, p_to_status;
+  end if;
+
+  -- Role-to-transition matrix.
+  if v_role in ('admin', 'super_admin') then
+    -- admin can perform any legal transition
+    null;
+  elsif v_role = 'finance_admin' then
+    if p_to_status not in ('refunded', 'cancelled') then
+      raise exception 'TRANSITION_NOT_ALLOWED_FOR_ROLE';
+    end if;
+  elsif v_role = 'merchant' then
+    -- merchant owner can move their own orders along the fulfillment chain
+    if p_to_status not in ('confirmed', 'processing', 'shipped', 'cancelled') then
+      raise exception 'TRANSITION_NOT_ALLOWED_FOR_ROLE';
+    end if;
+    if not exists (
+      select 1
+      from public.order_items oi
+      join public.products p on p.id = oi.product_id
+      join public.merchants m on m.id = p.merchant_id
+      where oi.order_id = p_order_id and m.owner_id = auth.uid()
+    ) then
+      raise exception 'ORDER_NOT_FOUND';
+    end if;
+  elsif v_role = 'reseller' then
+    -- reseller can only cancel their own pending orders
+    if p_to_status <> 'cancelled' or v_order.reseller_id <> auth.uid() or v_from_status <> 'pending' then
+      raise exception 'TRANSITION_NOT_ALLOWED_FOR_ROLE';
+    end if;
+  else
+    raise exception 'TRANSITION_NOT_ALLOWED_FOR_ROLE';
+  end if;
+
+  -- Tracking info is required when marking an order shipped.
+  if p_to_status = 'shipped' and (p_tracking_number is null or p_carrier is null) then
+    raise exception 'MISSING_TRACKING_INFO';
+  end if;
+
+  update public.orders
+  set status = p_to_status,
+      tracking_number = coalesce(p_tracking_number, tracking_number),
+      carrier = coalesce(p_carrier, carrier),
+      updated_at = now()
+  where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, actor_id, actor_role, note)
+  values (p_order_id, v_from_status, p_to_status, auth.uid(), v_role, p_note)
+  returning id into v_history_id;
+
+  -- Restock inventory when an order is cancelled or refunded.
+  if p_to_status in ('cancelled', 'refunded') then
+    update public.products p
+    set stock_int = p.stock_int + oi.quantity,
+        updated_at = now()
+    from public.order_items oi
+    where oi.order_id = p_order_id and p.id = oi.product_id;
+  end if;
+
+  -- Notify the customer about the status change.
+  if v_order.customer_id is not null then
+    insert into public.notifications (recipient_id, title, body, link)
+    values (
+      v_order.customer_id,
+      'Order ' || p_to_status,
+      'Your order ' || p_order_id || ' is now ' || p_to_status || '.',
+      '/orders/' || p_order_id
+    );
+  end if;
+
+  return jsonb_build_object(
+    'order_id', p_order_id,
+    'from_status', v_from_status,
+    'to_status', p_to_status,
+    'history_id', v_history_id
+  );
+end;
+$$;
+
+grant execute on function public.transition_order(uuid, text, text, text, text) to authenticated;

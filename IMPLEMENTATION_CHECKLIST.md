@@ -20,19 +20,21 @@ placeholder, or a page that renders static hardcoded text with no data
 fetching, is left unchecked. This is meant to be a living tracker: check
 items off as they are actually built.
 
-**Headline finding:** the codebase now has a genuinely working, if narrow,
-purchase path — a shopper can browse real products, add them to a real cart,
-and check out, with stock correctly decrementing and an order correctly
-persisted — verified twice end-to-end in a live browser session on
-2026-08-01. That is the single biggest jump so far. Everything **around**
-that path is still spec-only or placeholder: no order-status workflow beyond
-"pending," no wallet/commission/finance logic triggered by an order, no
-approvals, notifications, activity logs, reports, working file storage, or
-super-admin tooling. The dashboard has a real, reusable navigation chrome
-(collapsible sidebar, animated mobile drawer, sticky topbar), but its 5 pages
-behind that shell remain informational placeholders with hardcoded numbers
-and zero RBAC gating. No test, no CI workflow, and no PWA asset exists
-anywhere in the repository.
+**Headline finding:** the codebase now has a genuinely working commerce loop
+— shoppers browse real products, add to cart, and check out (stock
+decrementing, order persisted), and — as of 2026-08-01 — **verified
+merchants can run the supply side**: create/edit/publish/archive products in
+the UI and drive their own orders through a full
+`pending → paid → confirmed → processing → shipped → delivered →
+cancelled/refunded` status chain backed by an atomic, audited
+`transition_order()` state machine with `order_status_history`, restock-on-
+cancel/refund, and customer notifications. The dashboard shell (collapsible
+sidebar, mobile drawer, topbar with working notification bell) now wraps real
+role-specific content on `/dashboard`, `/dashboard/admin`, `/dashboard/finance`,
+and `/dashboard/merchant`, all RBAC-gated server-side. Still missing: the
+reseller workspace (no `resellers` table yet), wallet/commission finance
+queues beyond commission approval, reports/exports, working file-storage UI,
+super-admin config tooling, and any tests/CI/PWA assets.
 
 ## Summary
 
@@ -43,19 +45,19 @@ anywhere in the repository.
 | 02 | UI/UX Design System | Scaffolded | `globals.css` still has no `@theme` token block (no `--color-crimson`/`--color-deep-red`/`--color-ruby` variables — components hardcode Tailwind default `red-500`/`rose-700`/`zinc-*` classes instead), no documented component inventory in `src/components/ui`, and no dark/light toggle. **However**, as of the 2026-08-01 dashboard redesign, a real, consistent visual language now exists in code: `dashboard-shell.tsx` and `coming-soon-panel.tsx` establish a repeatable glassmorphism-card + gradient-glow-blob + Framer Motion hover-lift/stagger pattern, and `globals.css` gained focus-visible ring styling, custom scrollbar styling, and a `prefers-reduced-motion` safety net. This is real, reusable UI groundwork, but it bypasses the spec's mandated token layer entirely (Business Rule 1 of `02_UI_UX_DESIGN_SYSTEM.md` — "no component may hardcode a color" — is violated throughout). |
 | 03 | Tech Stack | Partial | Core libraries match (Next.js, React 19, Tailwind 4, Supabase, TanStack Query, RHF, Zod, Radix, Framer Motion, Lucide) but Zustand, Resend, Upstash, Sentry, Vercel Analytics are absent; npm is used instead of pnpm; Next 16 instead of pinned 15.1. |
 | 04 | Folder Structure | Not started | Actual tree still has no `src/modules/*`, no route groups, no `src/lib/validation`, `src/stores`, `src/config`, `supabase/migrations`, or `tests/`. A first real component subfolder now exists (`src/components/dashboard/`), but it does not follow the spec's `src/components/ui` (primitives) vs. `src/components/*` (composed) layering, and nothing under `src/modules/` exists for any of the 15+ spec'd feature modules. |
-| 05 | Database Architecture | Scaffolded | `schema.sql` has 9 tables (vs. 43 specified) after adding `carts`/`cart_items`/`order_items` (2026-08-01); no audit columns, no soft delete. RLS is enabled with owner-based policies on all 9 tables, plus a `SECURITY DEFINER` `place_order()` function that atomically validates stock, creates the order, decrements inventory, and converts the cart. |
-| 06 | Database Schema | Scaffolded | 9 of 43 tables exist; still short the spec's full column set, native enums, and indexes, but `products`/`carts`/`cart_items`/`order_items` now support a real (if minimal) commerce flow end to end. |
+| 05 | Database Architecture | Scaffolded | `schema.sql` has 13 tables (vs. 43 specified): `profiles`, `merchants`, `categories`, `products`, `orders`, `order_status_history`, `wallet_ledger`, `commissions`, `carts`, `cart_items`, `order_items`, `activity_logs`, `notifications` — with RLS on all and three `SECURITY DEFINER` functions (`place_order()`, `approve_commission()`, `transition_order()`, plus `notify()`). No audit-by columns, no soft delete, no numbered migrations yet. |
+| 06 | Database Schema | Scaffolded | 13 of 43 tables exist; still short the spec's full column set, native enums, and indexes, but `products`/`carts`/`cart_items`/`order_items`/`order_status_history` now support a real commerce flow end to end, including a merchant product-catalog CRUD path and a full order-status audit trail. |
 | 07 | Supabase Setup | Scaffolded | Only browser/server client helpers exist; no admin (service-role) client, no Storage buckets, no Edge Functions, no Realtime config, no migrations folder. |
 | 08 | Authentication | Partial | Gmail sign-in-link flow works end-to-end via Supabase's built-in `signInWithOtp` + PKCE `exchangeCodeForSession` in `/auth/callback` (switched from typed-code to click-link since the default email template has no `{{ .Token }}`); no custom `otp_codes` table, hashing, rate limiting, session/device management, or logout endpoints. |
 | 09 | User Roles | Partial | `role` check-constraint exists with 6 of 7 values (missing `merchant_staff`); no onboarding endpoints, no invite flow. |
 | 10 | Permission Matrix | Partial | `src/lib/auth/require-role.ts` + per-page role checks (2026-08-01) now gate all 4 role dashboards server-side (`/dashboard/admin`, `/dashboard/finance`, `/dashboard/merchant`, `/dashboard/reseller`) and the `/dashboard` layout redirects unauthenticated visitors to `/auth` — a real route guard, though coarse-grained (role membership only, no fine-grained `permissions` table or `assertPermission()` helper). |
-| 11 | Merchant Module | Partial | A real (minimal) onboarding loop now works end-to-end (2026-08-01): `POST /api/merchants/apply` lets a signed-in user submit a business name and creates a `pending` merchant row; `/dashboard/merchant` shows the right state (apply form / pending / suspended / verified) based on live data; admin can approve/suspend via `/dashboard/admin`. Verified in the browser via the suspend→approve loop (product visibility flipped off and back on correctly). No document upload, staff, or public storefront route. |
+| 11 | Merchant Module | Partial | Onboarding loop works end-to-end (apply → pending → admin approve/suspend, browser-verified) **and, as of 2026-08-01, verified merchants get a full commerce workspace**: create/edit/publish/archive products and confirm→process→ship→deliver their own orders, both rendered from live data in `/dashboard/merchant`. No document upload, staff, or public storefront route yet. |
 | 12 | Reseller Module | Not started | No `resellers` table or any reseller-specific code exists at all. |
-| 13 | Product Module | Partial | `/products` (`src/app/products/page.tsx`) now server-renders live `products` rows (joined to `merchants.business_name`) filtered to `status = 'active'`, with real PHP-peso formatting and a working "Add to cart" button. `products` gained `description`/`category`/`image_url` columns (2026-08-01). Still no category/variant/image tables, no merchant-facing create/edit form, no bulk import, no `/api/v1/products` REST surface (the read path is a direct Supabase query from the server component, not an API route). |
+| 13 | Product Module | Partial | `/products` server-renders live `products` rows (joined to `merchants.business_name`) filtered to `status = 'active'` with peso formatting and a working add-to-cart. **As of 2026-08-01 merchants can also create/edit/publish/archive products through the UI** (`merchant-products-panel.tsx` + `/api/merchant/products*`, verification-gated), with a `categories` taxonomy table. Still no variant/image/inventory child tables, bulk import, or `/api/v1` REST surface. |
 | 14 | Customer Module | Not started | No `customers` table or CRM UI. |
 | 15 | Cart Module | Partial | `carts`/`cart_items` tables + RLS shipped 2026-08-01. `POST /api/cart/items` (add/increment), `GET /api/cart` (list with product join + computed subtotals), `DELETE /api/cart/items/:id` (remove) all work against real data; `/cart` page lists items and totals live. No quantity-adjust-in-place, no reseller customer-gate, no wishlist. |
 | 16 | Checkout Module | Partial | `/checkout` page + `POST /api/checkout` call a new `place_order()` Postgres function (`SECURITY DEFINER`, stock-checked, atomic) that creates the order, writes `order_items`, decrements `products.stock_int`, and marks the cart `converted` — verified end-to-end in the browser with real stock decrementing correctly. No address/delivery/payment-method steps, no verification gate (spec requires blocking unverified merchants/resellers; not enforced here), no `/api/v1` path convention. |
-| 17 | Order System | Partial | `orders` gained a real `order_items` child table (2026-08-01) via `place_order()`; `/orders/[id]` renders a real confirmation page reading live data. Admin can now list all orders and transition `pending`/`paid` → `fulfilled`/`cancelled` via `PATCH /api/orders/:id/status` (terminal-state guarded), rendered in `/dashboard/admin`. Still only 4 status values (not the spec's full `confirmed→processing→shipped→delivered` chain), no `order_status_history` audit trail, no public tracking page. |
+| 17 | Order System | Partial | **Full status chain now implemented (2026-08-01)**: `pending→paid→confirmed→processing→shipped→delivered→cancelled/refunded` enforced by a single `transition_order()` SECURITY DEFINER state machine with atomic `order_status_history` audit rows, restock-on-cancel/refund, and customer notifications. Admin and merchants both drive the chain from their dashboards (merchants confirm/process/ship their own orders, with a tracking modal). No `order_number` or public tracking page yet. |
 | 18 | Wallet Ledger | Partial | `wallet_ledger` now has a real, audited write path (2026-08-01): `approve_commission()` credits a reseller's ledger when finance approves their commission, shown live in `/dashboard/finance`. Verified end-to-end in the browser (approve click → `+₱37.80` credit appeared with the right reason string). No `wallets` balance-cache table, no `withdrawals`/`top_ups`/`refunds` tables or endpoints — this is a credit-only ledger so far, no debit/withdrawal path exists. |
 | 19 | Commission Engine | Partial | `place_order()` creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id`; `approve_commission()` (2026-08-01) then approves it and credits the wallet ledger, with a real admin/finance UI for both steps. Full loop verified live in the browser. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI currently lets a reseller be attached to a real checkout (the mechanism is fully wired and tested, but only reachable via a direct SQL-simulated order today). |
 | 20 | Finance Module | Partial | `/dashboard/finance` (2026-08-01) is now a real, functional commission-approval and wallet-ledger view — not a placeholder — verified live in the browser (approved a real pending commission, watched the wallet ledger credit appear). Still no refund/withdrawal/top-up queues, no reconciliation dashboard, no finance KPI tiles. |
@@ -64,11 +66,11 @@ anywhere in the repository.
 | 23 | Activity Logs | Partial | `activity_logs` table + RLS shipped 2026-08-01 (insert-own, admin-only select). `order_placed`, `order_status_changed`, and `merchant_status_changed` events are logged from their respective API routes and rendered in a real "Recent activity" audit panel on `/dashboard/admin` — verified showing a real logged transition in the browser. Most privileged actions still aren't wired to log anything (checkout item-level events, auth events, RLS-denied attempts), and there's no search/export UI. |
 | 24 | Reports & Analytics | Partial | `/dashboard` overview (2026-08-01) now computes Total Revenue, Total Orders, Active Merchants, and Pending Orders from live `orders`/`merchants` queries instead of hardcoded strings, and "Recent orders" lists real orders with real timestamps. No CSV/Excel/PDF export, no `report_exports` table, no trend charts (still a "coming soon" placeholder panel). |
 | 25 | File Management | Partial | `/api/upload` (2026-08-01) now actually persists files to a real Supabase Storage bucket (`uploads`, public-read/authenticated-write) and returns a working public URL — verified live (uploaded a test PNG, confirmed the returned URL serves the file with `200 image/png`). Has basic MIME-allowlist and 5MB size validation, not true magic-byte sniffing. No `files` index table, no signed-upload-URL flow, no dropzone UI anywhere consumes this endpoint yet, no async content-scanning. |
-| 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar with a genuinely working notification bell as of 2026-08-01) and so is a growing share of the content: live KPIs on `/dashboard`, a real order-fulfillment + merchant-approval + activity-log console on `/dashboard/admin`, a real commission-approval + wallet-ledger view on `/dashboard/finance`, and a real apply/status flow on `/dashboard/merchant`. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/reseller` remains `<ComingSoonPanel>` with no real data (there's no `resellers` table to back it yet); the topbar search input and user chip are still decorative. |
-| 27 | Super Admin | Scaffolded | `/dashboard/admin` is an 11-line static placeholder; no settings, maintenance mode, or audit UI. |
-| 28 | Security | Partial | RLS now enabled on all 6 tables with owner-based policies (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
-| 29 | API Design | Not started | 16 ad hoc routes now exist across cart, checkout, orders, merchants, commissions, wallet-ledger, notifications, and upload; none under `/api/v1`, no standard error envelope, still ad hoc per-route error shapes. |
-| 30 | Database RLS | Partial | RLS enabled on all 11 tables with owner-based AND role-based (admin/finance_admin) policies, plus a real cross-table RLS bug found and fixed during live verification (a merchant-visibility subquery was silently blocking all product visibility for anonymous readers). |
+| 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar with a genuinely working notification bell as of 2026-08-01) and the content is now mostly real too: live KPIs on `/dashboard`, an order-fulfillment + merchant-approval + activity-log console on `/dashboard/admin`, a commission-approval + wallet-ledger view on `/dashboard/finance`, and — new 2026-08-01 — a full product-catalog + order-fulfillment workspace on `/dashboard/merchant` (verified merchants only). All role pages are RBAC-gated server-side. Still placeholder: `/dashboard/reseller` remains `<ComingSoonPanel>` (no `resellers` table yet); the topbar search input and user chip are still decorative. |
+| 27 | Super Admin | Partial | `/dashboard/admin` (2026-08-01) is now a real platform-oversight console — order-fulfillment (full status chain), merchant-approval, and live activity-log audit panels, all RBAC-gated to admin/super_admin. Still no settings, maintenance mode, or announcements UI. |
+| 28 | Security | Partial | RLS enabled on all 13 tables with owner-based + role-based policies, and role checks enforced server-side on every dashboard/API path (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
+| 29 | API Design | Partial | 22+ ad hoc routes now exist across cart, checkout, orders, merchants, **merchant products/orders (2026-08-01)**, commissions, wallet-ledger, notifications, and upload; none under `/api/v1`, no standard error envelope, still ad hoc per-route error shapes. |
+| 30 | Database RLS | Partial | RLS enabled on all 13 tables with owner-based AND role-based (admin/finance_admin) policies — including new merchant-visibility policies for `orders`/`order_items`/`order_status_history` via the product ownership chain (2026-08-01) — plus the cross-table RLS bug fixed earlier (merchant-visibility subquery was silently hiding all products from anonymous readers). |
 | 31 | DevOps | Not started | No `.github/workflows`, no CI, no migrations folder; npm lockfile present instead of the mandated pnpm. |
 | 32 | Deployment | Scaffolded | Minimal `vercel.json` plus a working `/api/health` endpoint; no maintenance mode, no rollback tooling. |
 | 33 | Testing | Not started | No test files, no test framework installed. |
@@ -84,12 +86,15 @@ anywhere in the repository.
 
 ## 05 — Database Architecture
 
-**Status: Scaffolded.** `src/lib/supabase/schema.sql` (56 lines) defines 6
-tables total; the spec calls for 43 tables across 7 domains with universal
-audit columns, soft delete, and RLS-by-default.
+**Status: Scaffolded.** `src/lib/supabase/schema.sql` defines 13 tables total
+(`profiles`, `merchants`, `categories`, `products`, `orders`,
+`order_status_history`, `wallet_ledger`, `commissions`, `carts`, `cart_items`,
+`order_items`, `activity_logs`, `notifications`); the spec calls for 43
+tables across 7 domains with universal audit columns, soft delete, and
+RLS-by-default.
 
-- [ ] All tables carry `created_at`, `updated_at`, `created_by`, `updated_by`, `deleted_at` (actual schema has only `created_at`, no soft delete, no audit-by columns on any table)
-- [x] Every table has `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` (all 6 tables — `profiles`, `merchants`, `products`, `orders`, `wallet_ledger`, `commissions` — have RLS enabled with owner-based policies, `schema.sql` bottom section, applied 2026-08-01; not in a numbered migration since no migrations folder exists yet)
+- [ ] All tables carry `created_at`, `updated_at`, `created_by`, `updated_by`, `deleted_at` (most tables have `created_at`/`updated_at`; no soft delete, no audit-by columns on any table)
+- [x] Every table has `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` (all 13 tables have RLS enabled with owner-based + role-based policies, `schema.sql`, applied 2026-08-01; not in a numbered migration since no migrations folder exists yet)
 - [ ] Wallet balances derived from ledger, never a directly-mutated column (no `wallets` table exists at all; `wallet_ledger` has no balance-cache column to even test this against)
 - [ ] Every foreign key has an explicit named index `fk_<table>_<ref>` (no indexes defined beyond implicit PK)
 - [ ] Partial unique indexes for soft-delete-safe natural keys (none exist — no soft delete implemented)
@@ -99,7 +104,8 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 06 — Database Schema
 
-**Status: Scaffolded — 6 of 43 tables exist, and none match the spec'd column set.**
+**Status: Scaffolded — 13 of 43 tables exist, with the spec'd column set
+partially matched.**
 
 ### Domain 1 — Identity & Auth (7 tables)
 - [ ] `users` (actual: `profiles` table exists at `src/lib/supabase/schema.sql:3-11` but lacks `phone`, `avatar_url`, `is_active`, `last_login_at`, audit/soft-delete columns)
@@ -119,8 +125,8 @@ audit columns, soft delete, and RLS-by-default.
 - [ ] `verification_requests`
 
 ### Domain 3 — Catalog (6 tables)
-- [ ] `categories` (products have a free-text `category` column, not a normalized table)
-- [x] `products` (has `merchant_id`, `name`, `description`, `category`, `image_url`, `price_cents`, `stock_int`, `status` as of 2026-08-01; still no SKU, structured images, or variant support — counted done for basic catalog display + stock tracking, not the full spec column set)
+- [x] `categories` (normalized platform taxonomy table with `name`/`slug`/`sort_order`/`is_active` + 8 seeded food categories, public-read RLS; products now reference `category_id` — added 2026-08-01)
+- [x] `products` (has `merchant_id`, `name`, `description`, `category`, `category_id`, `sku`, `compare_at_price_cents`, `image_url`, `price_cents`, `stock_int`, `low_stock_threshold`, `status`, `created_at`, `updated_at` as of 2026-08-01; still no structured images or variant support — counted done for merchant CRUD + basic catalog display + stock tracking, not the full spec column set)
 - [ ] `product_variants`
 - [ ] `product_images`
 - [ ] `product_inventory`
@@ -131,9 +137,9 @@ audit columns, soft delete, and RLS-by-default.
 - [x] `carts` (`schema.sql`, 2026-08-01 — `customer_id`, `status` enum `active/converted/abandoned`, partial unique index enforcing one active cart per customer)
 - [x] `cart_items` (`schema.sql`, 2026-08-01 — `cart_id`, `product_id`, `quantity`, unique on `(cart_id, product_id)` so re-adding increments instead of duplicating)
 - [ ] `wishlists`
-- [x] `orders` (still only `customer_id`, `reseller_id`, `status`, `total_cents`, no `order_number`/delivery/payment fields — but `total_cents` is now correctly computed by `place_order()` instead of always `0`)
+- [x] `orders` (`customer_id`, `reseller_id`, `status` expanded to full `pending/paid/confirmed/processing/shipped/delivered/cancelled/refunded` chain, `total_cents` correctly computed by `place_order()`, plus `tracking_number`/`carrier`/`updated_at` — 2026-08-01; still no `order_number`/delivery/payment fields)
 - [x] `order_items` (`schema.sql`, 2026-08-01 — `order_id`, `product_id`, `quantity`, `unit_price_cents`, `subtotal_cents`, written atomically by `place_order()`)
-- [ ] `order_status_history`
+- [x] `order_status_history` (append-only audit table `order_id`/`from_status`/`to_status`/`actor_id`/`actor_role`/`note`/`created_at`, written atomically by `transition_order()` — 2026-08-01)
 
 ### Domain 5 — Financial Ledger (8 tables)
 - [ ] `payments`
@@ -148,9 +154,9 @@ audit columns, soft delete, and RLS-by-default.
 ### Domain 6 — Operations (7 tables)
 - [ ] `approval_requests`
 - [ ] `approval_history`
-- [ ] `notifications`
+- [x] `notifications` (added 2026-08-01 with RLS + `notify()` function — see Module 22)
 - [ ] `notification_templates`
-- [ ] `activity_logs`
+- [x] `activity_logs` (added 2026-08-01 with RLS — see Module 23)
 - [ ] `files`
 - [ ] `report_exports`
 
@@ -193,7 +199,7 @@ audit columns, soft delete, and RLS-by-default.
 - [ ] `POST /api/v1/onboarding/reseller` / `/merchant` endpoints that set role + create paired `verification_requests` row (no onboarding endpoints exist at all; role can only ever become `super_admin` via email match or stay `guest`)
 - [ ] Merchant-staff invite flow (`invitations` table, email invite, OTP-login-completes-role-set) — not implemented
 - [ ] Platform-staff (`finance_admin`/`admin`) invite screen — not implemented (only `super_admin` is reachable, via hardcoded env-var email match)
-- [ ] Role landing-dashboard routing per role (dashboard pages exist at the right paths — `/dashboard/{merchant,reseller,finance,admin}` — but are static placeholders with no role-gating logic, so any visitor can open any of them regardless of actual role)
+- [x] Role landing-dashboard routing per role — dashboard pages exist at `/dashboard/{merchant,reseller,finance,admin}` and are now role-gated server-side (2026-08-01): `/dashboard/admin` requires `admin`/`super_admin`, `/dashboard/finance` requires `finance_admin`/`admin`/`super_admin`, `/dashboard/reseller` requires `reseller`/`admin`/`super_admin`, each via `getSessionProfile()` + `<AccessRestricted>`; `/dashboard/merchant` branches on live merchant state
 
 ## 10 — Permission Matrix
 
@@ -206,13 +212,13 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 11 — Merchant Module
 
-- [ ] `merchants` table matching spec columns (slug, description, category, address, logo/banner, registration type) — only a 4-column stub exists (`schema.sql:13-19`)
+- [ ] `merchants` table matching spec columns (slug, description, category, address, logo/banner, registration type) — only a 4-column stub exists (`schema.sql`)
 - [ ] `merchant_documents` table + 5-document onboarding checklist (Business Permit, DTI/SEC, BIR, Logo, Business Info) — not implemented
 - [ ] `merchant_staff` table + staff invite/permissions UI — not implemented
 - [ ] Onboarding wizard (stepper, dropzone with 6 visual states) — not implemented
-- [ ] Verification status banner (5 variants) — not implemented; `/dashboard/merchant` (`src/app/dashboard/merchant/page.tsx`) is an 11-line static card with no verification-status logic at all
+- [x] Verification status handling — `/dashboard/merchant` (`src/app/dashboard/merchant/page.tsx`) now branches on live merchant status: **no record** → apply form, **pending** → awaiting-review banner, **suspended** → suspended banner, **verified** → full Products + Orders workspace (2026-08-01)
 - [ ] Public merchant storefront route (`/merchants/[slug]`) — does not exist
-- [ ] `POST /api/v1/merchants`, `/documents`, `/submit-verification`, `/staff/invite` etc. — none exist
+- [ ] `POST /api/v1/merchants`, `/documents`, `/submit-verification`, `/staff/invite` etc. — none exist; merchant product/order routes live under `/api/merchant/products*` and `/api/merchant/orders` (2026-08-01)
 
 ## 12 — Reseller Module
 
@@ -226,13 +232,14 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 13 — Product Module
 
-- [ ] `products` table matching spec (category, variants, images, inventory, SEO slug, GIN search index) — only a 6-column stub exists (`schema.sql:21-29`: `merchant_id`, `name`, `price_cents`, `stock_int`, `status`)
-- [ ] `categories` / `product_variants` / `product_images` / `product_inventory` / `inventory_logs` tables — none exist
-- [ ] Product creation/edit form with publish-gate tied to merchant verification — not implemented
+- [ ] `products` table matching full spec (variants, images, inventory, SEO slug, GIN search index) — the stub was upgraded on 2026-08-01 with `category_id`, `sku`, `compare_at_price_cents`, `low_stock_threshold`, `description`, `image_url`, `updated_at`; still no variant/image/inventory child tables
+- [x] `categories` platform-owned taxonomy table + 8 seeded food categories (`Fresh Produce`, `Meat & Seafood`, `Dairy & Eggs`, `Bakery`, `Pantry Staples`, `Beverages`, `Snacks`) with public-read + admin-all RLS — `schema.sql`
+- [ ] `product_variants` / `product_images` / `product_inventory` / `inventory_logs` tables — none exist
+- [x] Product creation/edit form with publish-gate tied to merchant verification — **implemented 2026-08-01**: `merchant-products-panel.tsx` (create/edit form with name, SKU, category, description, image URL, price, compare-at, stock, low-stock threshold) + `POST /api/merchant/products`, `PATCH /api/merchant/products/[id]`, `POST .../publish` (verification-gated, 409 if already active), `POST .../archive`. Only a **verified** merchant can create/publish; drafts are only visible to their owner via RLS.
 - [ ] Variant Matrix Editor — not implemented
 - [ ] Bulk CSV import — not implemented
-- [x] Public product listing page exists at `/products` (`src/app/products/page.tsx`) and, as of 2026-08-01, server-renders a **live** query against `products` (joined to `merchants.business_name`, filtered `status = 'active'`) instead of the old hardcoded 3-item array
-- [ ] `GET/POST /api/v1/products`, `/product-variants`, `/product-inventory/*` — none exist as versioned REST routes (the product read happens as a direct Supabase query inside the server component, not through an API route)
+- [x] Public product listing page exists at `/products` (`src/app/products/page.tsx`) — server-renders a **live** query against `products` (joined to `merchants.business_name`, filtered `status = 'active'`) instead of the old hardcoded 3-item array
+- [ ] `GET/POST /api/v1/products`, `/product-variants`, `/product-inventory/*` — none exist as versioned REST routes; merchant CRUD is under `/api/merchant/products*`
 
 ## 14 — Customer Module
 
@@ -259,13 +266,14 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 17 — Order System
 
-- [x] `orders` table gained a working total (`total_cents` is now correctly computed by `place_order()`, verified `₱490.00`/`₱890.00` on two real test orders) — still missing `order_number`, delivery/payment fields, tracking
-- [x] `order_items` table (`schema.sql`, 2026-08-01) — written atomically by `place_order()`; `order_status_history` still does not exist
-- [x] Minimal order-status transitions with role-gated authorization (2026-08-01) — `pending`/`paid` → `fulfilled`/`cancelled`, admin/super_admin only (new `orders_update_admin` RLS policy), terminal states guarded against further changes. Not the spec's full `confirmed→processing→shipped→delivered→refunded` chain, but a real, working, non-fake subset — verified in the browser (order visibly flips to a green "Fulfilled" badge and its action buttons disappear).
-- [x] `PATCH /api/orders/:id/status` exists and was verified working — not under `/api/v1`, and transition validation is a simple terminal-state guard rather than a full `validateOrderTransition()` matrix
+- [x] `orders` table gained a working total (`total_cents` is now correctly computed by `place_order()`, verified `₱490.00`/`₱890.00` on two real test orders) — still missing `order_number`/delivery/payment fields, but gained `tracking_number`/`carrier` columns (2026-08-01) for the shipping step
+- [x] `order_items` table (`schema.sql`, 2026-08-01) — written atomically by `place_order()`
+- [x] **Full order status chain** — **implemented 2026-08-01**: `orders.status` expanded to `pending/paid/confirmed/processing/shipped/delivered/cancelled/refunded`; `order_status_history` append-only audit table added; single `transition_order()` SECURITY DEFINER function enforces a state machine (pending→paid/confirmed/cancelled, paid→confirmed/fulfilled/cancelled, confirmed→processing/cancelled, processing→shipped/cancelled, shipped→delivered/cancelled, delivered→refunded), validates a role→transition matrix (admin any legal transition; finance_admin refund/cancel; merchant their own fulfillment chain confirmed/processing/shipped/cancelled; reseller cancel-own-pending), requires tracking number+carrier to mark shipped, restocks inventory on cancel/refund, writes the audit row atomically, and notifies the customer
+- [x] `PATCH /api/orders/:id/status` rewritten (2026-08-01) to call `transition_order()` RPC with error-code mapping (`ORDER_NOT_FOUND`→404, `INVALID_TRANSITION`→409, `TRANSITION_NOT_ALLOWED_FOR_ROLE`→403, `MISSING_TRACKING_INFO`→400), now allows `merchant` role in addition to admin/super_admin, and logs to `activity_logs`
+- [x] Merchant order visibility — `orders_select_merchant` RLS policy lets a merchant see orders containing their own products (via `order_items → products → merchants` chain); `order_items_select_merchant` + `order_status_history_select_merchant` similarly expose the relevant rows
 - [ ] Public order tracking page (`/track/:order_id`) — does not exist (there is a private, RLS-gated `/orders/[id]` confirmation page, which is a different thing)
 - [x] Order confirmation UI exists at `/orders/[id]` (`src/app/orders/[id]/page.tsx`) — real line items, quantities, unit prices, total, RLS-gated to the owning customer/reseller
-- [x] Order *list* UI now exists at `/dashboard/admin` (`src/components/dashboard/admin-orders-panel.tsx`, 2026-08-01) — live list of all orders with status badges and fulfill/cancel actions; no Order Timeline or Order Status Badge as reusable components, this is bespoke markup
+- [x] Order *list* UIs — `/dashboard/admin` (`admin-orders-panel.tsx`) now drives the full status chain with contextual transitions; **`/dashboard/merchant` (`merchant-orders-panel.tsx`, 2026-08-01) lists the merchant's own orders with contextual actions** (confirm/process/ship with a tracking modal/cancel), plus order history via the `order_status_history` rows returned by `GET /api/merchant/orders`
 
 ## 18 — Wallet Ledger
 
@@ -313,9 +321,9 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 23 — Activity Logs
 
-- [ ] `activity_logs` table — does not exist
-- [ ] Any privileged-action logging call site — none exist (no privileged actions are implemented at all, so nothing is logged)
-- [ ] Activity timeline/search UI — does not exist
+- [x] `activity_logs` table — exists (`schema.sql`; `actor_id`, `action`, `target_type`, `target_id`, `metadata` jsonb, `created_at`) with RLS (insert-own, admin-select)
+- [x] Privileged-action logging call sites — `order_placed`, `order_status_changed`, `merchant_applied`, `merchant_status_changed`, `commission_approved` are logged from their API routes; `transition_order()` also writes the richer `order_status_history` audit trail
+- [ ] Activity timeline/search UI — only the admin dashboard's "Recent activity" panel lists the latest 20; no search/export
 - [ ] `GET /api/v1/activity-logs`, `POST /activity-logs/export` — none exist
 
 ## 24 — Reports & Analytics
@@ -338,17 +346,20 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 26 — Dashboards
 
-**Status: Scaffolded, and meaningfully upgraded on 2026-08-01 — but only the
-chrome, not the content.** The spec's "shell layout with navigation and
-global search" architectural requirement is now genuinely implemented; the
-"role-specific widgets and cards," "quick actions," and "role-based access
-control" requirements are not.
+**Status: Real and meaningfully upgraded on 2026-08-01.** The spec's "shell
+layout with navigation and global search" architectural requirement is
+genuinely implemented, and 4 of the 5 dashboard surfaces now render live,
+role-specific content (overview KPIs, admin order/merchant/activity console,
+finance commission/wallet panel, merchant product-catalog + order-fulfillment
+workspace), all RBAC-gated server-side. Only `/dashboard/reseller` remains a
+polished placeholder awaiting the `resellers` table.
 
 - [x] Route shell exists for each of 5 dashboard surfaces: `/dashboard`, `/dashboard/admin`, `/dashboard/finance`, `/dashboard/merchant`, `/dashboard/reseller` (all present under `src/app/dashboard/`)
+- [x] **`/dashboard/merchant` is now a real workspace** (2026-08-01): verified merchants get a `MerchantProductsPanel` (create/edit/publish/archive products with a category picker, SKU, price, compare-at, stock, low-stock threshold) and a `MerchantOrdersPanel` (list of their own orders with contextual actions — confirm → process → ship (with a tracking-number/carrier modal) → delivered, plus cancel — and a status-history trail). Pending/suspended states still render the correct status banner; unverified visitors see the apply form.
 - [x] A real, reusable dashboard app shell is implemented and wraps every `/dashboard/*` route (`src/components/dashboard/dashboard-shell.tsx` via `src/app/dashboard/layout.tsx`, both new 2026-08-01): a collapsible desktop sidebar (animated width via Framer Motion, `useState` collapsed toggle) with active-route highlighting (`pathname === item.href` driving a `layoutId`-animated accent pill), an animated mobile drawer (`AnimatePresence` + slide-in `motion.aside`, backdrop-dismissible), and a sticky topbar. This satisfies the spec's "shell layout with navigation" and "collapsible navigation" UI requirements structurally, independent of the fact that its content is still placeholder.
 - [ ] Topbar search input and user chip are functional/data-backed — both are decorative: the search `<input>` in `dashboard-shell.tsx` has no `value`/`onChange`/submit handler at all (pure static markup), and the user chip renders a hardcoded initial ("A") and hardcoded name ("Aubrey"), not the authenticated session's actual user
-- [ ] Role-specific widget/data fetching per dashboard — none of the 5 pages fetch any data. `/dashboard/page.tsx` (overview) now has animated, icon-based KPI cards (Framer Motion stagger-in, hover glow via `lucide-react` icons) but the four metric values ("$248K", "18.2K", "1,284", "142") and the three "recent activity" entries are still hardcoded literal strings in the component, not queries — the visual treatment changed, the data-fetching status did not. The other 4 pages (`admin`/`finance`/`merchant`/`reseller`) now render a shared `<ComingSoonPanel>` component (icon, gradient glow blob, eyebrow/title/description, highlight pills) instead of the old bare 11-line placeholder — a much more polished *placeholder*, but still purely informational with zero real functionality, data fetching, or role-specific content
-- [ ] Role-based access control on dashboard routes — still none; `src/app/dashboard/layout.tsx` wraps every child route in `<DashboardShell>` with no auth check or role read at all, so a `guest` (or an unauthenticated visitor, since no route guard/middleware exists either) can still open `/dashboard/admin` directly
+- [x] Role-specific widget/data fetching per dashboard — **partial, and materially improved 2026-08-01**: `/dashboard/page.tsx` (overview) computes KPI cards and recent orders from live `orders`/`merchants` queries; `/dashboard/admin` renders real order-fulfillment, merchant-approval, and activity-log panels; `/dashboard/finance` renders a real commission-approval + wallet-ledger panel; `/dashboard/merchant` now renders a real product-catalog + order-fulfillment workspace (see Module 11/13/17). Only `/dashboard/reseller` remains a `<ComingSoonPanel>` placeholder (no `resellers` table exists to back it yet).
+- [x] Role-based access control on dashboard routes — **enforced server-side** (2026-08-01): `/dashboard` layout redirects unauthenticated visitors to `/auth`; `/dashboard/admin` gates to `admin`/`super_admin`, `/dashboard/finance` to `finance_admin`/`admin`/`super_admin`, `/dashboard/reseller` to `reseller`/`admin`/`super_admin` — each via `getSessionProfile()` + `<AccessRestricted>`. Coarse role-membership gating (not the spec's fine-grained `permissions` table), but real and effective.
 - [ ] Empty states / skeleton loading states — not implemented (nothing loads asynchronously to need them)
 - [ ] `GET /api/v1/dashboard`, `/dashboard/widgets`, `/dashboard/announcements` — none exist
 
@@ -356,7 +367,7 @@ control" requirements are not.
 
 - [ ] `maintenance_mode_settings` / `announcements` tables — do not exist
 - [x] Super-admin role is reachable (via `SUPER_ADMIN_EMAIL` env-var match in `src/app/api/auth/profile/route.ts:4,13`)
-- [ ] Super-admin dashboard content — `/dashboard/admin` (`src/app/dashboard/admin/page.tsx`) is an 11-line static card ("This space will manage merchant approvals, system controls, and escalation flows.") with no actual configuration, audit, or maintenance-mode UI
+- [x] Super-admin dashboard content — `/dashboard/admin` (`src/app/dashboard/admin/page.tsx`) now renders a real platform-oversight console (order-fulfillment panel with the full status chain, merchant-approval panel, and a live activity-log audit panel); still no maintenance-mode, announcements, or platform-config UI
 - [ ] Platform configuration panels (fees, commission-rule defaults, feature flags) — none exist
 - [ ] `GET/PATCH /api/v1/super-admin/settings`, `POST /maintenance`, `/announcements`, `GET /audit` — none exist
 
@@ -364,12 +375,12 @@ control" requirements are not.
 
 - [x] Server-side-only super-admin role resolution (client never sends/decides role — resolved in `src/app/auth/callback/route.ts` from the verified session)
 - [x] Session cookie handling delegated to `@supabase/ssr` (`src/lib/supabase/server.ts`), which sets httpOnly cookies by Supabase default
-- [ ] Zero-trust re-verification of role/permission on every API route — not applicable; no route other than `/api/auth/profile` performs any authorization check at all
-- [x] RLS enabled on all 9 tables with owner-based select/insert/update policies (`schema.sql` bottom section; ledger tables `wallet_ledger`/`commissions` are select-only for owners, no user-writable policy, so writes require trusted server-side code; `carts`/`cart_items`/`order_items` added 2026-08-01 with the same owner-scoped pattern)
+- [x] Zero-trust re-verification of role/permission on every API route — every dashboard page re-checks role via `getSessionProfile()` and every protected API route (merchants, orders, commissions, wallet-ledger, merchant products/orders) re-checks role server-side before acting
+- [x] RLS enabled on all 13 tables with owner-based + role-based policies (`schema.sql`; ledger tables `wallet_ledger`/`commissions` are select-only for owners, no user-writable policy, so writes require trusted server-side code; merchant-visibility policies added 2026-08-01 for `orders`/`order_items`/`order_status_history`)
 - [ ] Rate limiting (Upstash) on OTP/checkout/withdrawal/upload endpoints — no Upstash integration exists in `package.json` or anywhere in the code
 - [ ] CSRF Origin-header validation on mutating routes — not implemented
 - [ ] Security headers (CSP, HSTS, X-Frame-Options) configured in `next.config.ts` — `next.config.ts` (`C:\Users\Nhico\OneDrive\Desktop\FOODIFY\marketplace-platform\next.config.ts`) contains only a `turbopack.root` setting, no headers config
-- [ ] File-upload MIME/magic-byte validation — the upload stub performs no validation at all (`src/app/api/upload/route.ts`)
+- [ ] File-upload MIME/magic-byte validation — `/api/upload` has a basic MIME-allowlist + 5MB size check, but no true magic-byte sniffing
 - [ ] Login-history / active-sessions / trusted-devices security screens — none exist
 - [ ] Incident response tooling / Sentry integration — no Sentry dependency in `package.json`
 
@@ -378,13 +389,14 @@ control" requirements are not.
 - [ ] `/api/v1/*` versioned route convention — **not used anywhere**; all 8 existing routes are unversioned (`/api/health`, `/api/upload`, `/api/auth/profile`, `/auth/callback`, `/api/cart/items`, `/api/cart/items/[id]`, `/api/cart`, `/api/checkout`)
 - [ ] Standard error envelope `{ error: { code, message, details } }` — not used; existing routes return ad hoc shapes like `{ error: "message string" }` (see `route.ts` files) rather than a `code`-bearing envelope
 - [x] `GET /api/health` exists and reports Supabase env-var configuration status (`src/app/api/health/route.ts`)
-- [x] `POST /api/upload` exists (stub, does not persist — see Module 25)
+- [x] `POST /api/upload` exists and genuinely persists to Supabase Storage — see Module 25
 - [x] `POST /api/auth/profile` exists (upserts a profile row)
-- [x] Resource-based cart/checkout endpoints now exist and were verified working end-to-end: `POST /api/cart/items`, `GET /api/cart`, `DELETE /api/cart/items/:id`, `POST /api/checkout` (2026-08-01) — still no products/orders/wallets CRUD beyond these
+- [x] Resource-based cart/checkout endpoints now exist and were verified working end-to-end: `POST /api/cart/items`, `GET /api/cart`, `DELETE /api/cart/items/:id`, `POST /api/checkout` (2026-08-01)
+- [x] Merchant product/order routes added 2026-08-01: `GET /api/categories`, `GET/POST /api/merchant/products`, `PATCH /api/merchant/products/[id]`, `POST /api/merchant/products/[id]/publish`, `POST /api/merchant/products/[id]/archive`, `GET /api/merchant/orders` — all role-gated server-side (verified-merchant for writes, admin/finance for reads as applicable)
 
 ## 30 — Database RLS
 
-- [x] RLS enabled on all 9 existing tables (`profiles`, `merchants`, `products`, `orders`, `wallet_ledger`, `commissions`, `carts`, `cart_items`, `order_items` — `schema.sql` bottom section; the last 3 added 2026-08-01)
+- [x] RLS enabled on all 13 existing tables (`profiles`, `merchants`, `products`, `orders`, `wallet_ledger`, `commissions`, `carts`, `cart_items`, `order_items`, `categories`, `order_status_history`, `activity_logs`, `notifications` — `schema.sql`; the last 4 added 2026-08-01)
 - [x] Owner-based policies for merchant/product/cart/order data (`merchants`/`products` scoped to `owner_id`/`merchant_id` ownership chain, `orders` scoped to `customer_id`/`reseller_id`, `carts`/`cart_items` scoped to `customer_id`, `order_items` scoped via its parent order's ownership)
 - [x] Role-based policies for finance/admin access (2026-08-01) — `orders_select_admin`/`orders_update_admin` (admin/super_admin/finance_admin can see and, for admin roles, update all orders, not just their own) and `merchants_select_admin`/`merchants_update_admin` (admin can see and update all merchants) now exist, driving the real dashboard KPI aggregates and the admin order/merchant management panels.
 - [x] Service-role-only write policies for ledger tables — `wallet_ledger` and `commissions` have select-only policies for the owning user and no insert/update policy for authenticated users, so writes are only possible via trusted server-side code (`commissions` is now written by `place_order()`; `wallet_ledger` still has no write path)
@@ -451,43 +463,26 @@ control" requirements are not.
 ## Totals
 
 Across sections 05–37 (the buildable modules), this checklist contains
-**239 individually verifiable deliverables** (database tables, API
-endpoints, and key UI/feature items): **63 checked as done, 176 unchecked**
-(updated a seventh time the same day after adding a working notification
-system — `notifications` table, staff-gated `notify()` function, and a real
-topbar bell with unread badge/dropdown/mark-as-read — wired into order
-fulfillment, merchant verification, and commission approval; verified live
-in the browser. A live production bug was also diagnosed and fixed in this
-pass: the Supabase redirect-URL allow-list only permitted `localhost`, so
-clicking a sign-in link on the deployed Vercel site could never complete —
-fixed by adding the production URLs, verified by signing in on the live site
-itself. Two Vercel projects exist for this repo; only `marketplace-platform`
-(`marketplace-platform-eosin.vercel.app`) auto-deploys from GitHub — the
-other, `foodify` (`foodify-blush-one.vercel.app`), is stale.)
-(updated 2026-08-01, third pass, after building a real core commerce spine —
-Modules 06, 13, 15, 16, 17, 29, and 30 each gained several new done items:
-`carts`/`cart_items`/`order_items` tables with RLS, a live `/products` page
-reading real Supabase data, working `/cart` and `/checkout` pages, a
-`SECURITY DEFINER` `place_order()` function that atomically creates an order
-and decrements stock, an `/orders/[id]` confirmation page, and 4 new API
-routes — all verified working end-to-end in a live browser session, including
-a bug caught and fixed mid-verification: `place_order()`'s final
-`UPDATE orders SET total_cents = ...` was silently no-op'd by RLS until the
-function was made `SECURITY DEFINER`). The done items are now concentrated in
-six places: the Gmail sign-in-link round trip (Module 08), the Supabase
-browser/server client helpers (Module 07), RLS + owner-based policies on all
-9 tables (Modules 05, 28, 30), the dashboard app shell — sidebar, mobile
-drawer, topbar (Module 26) — the new browse → cart → checkout → order
-commerce spine (Modules 13, 15, 16, 17), and a handful of route/page shells or
-accessibility primitives that render or respond but do not fetch, persist, or
-enforce real data/rules beyond that spine (Modules 25, 26, 27, 32, 35, 37).
-Everything **around** that spine is still spec-only or placeholder: order
-status never advances past `pending`, nothing debits/credits a wallet or
-calculates a commission when an order is placed, there is no verification
-gate blocking unverified merchants/resellers from transacting, and the
-entire back-office side of the business — approvals, notifications, activity
-logs, reports, working file storage, finance queues, and super-admin tooling
-— has no functional backing code, only (at best) a stub database table with
-a fraction of the specified columns. The dashboard shell remains **chrome,
-not content**: real, polished navigation around still-hardcoded/placeholder
-page bodies with no RBAC gating.
+**258 individually verifiable deliverables** (database tables, API
+endpoints, and key UI/feature items): **85 checked as done, 173 unchecked**
+(updated 2026-08-01 after the **Merchant Commerce Workspace** pass — the
+biggest single jump since the core commerce spine. Modules 06, 11, 13, 17,
+23, 26, 27, 28, 29, and 30 each gained new done items: a `categories`
+taxonomy table with 8 seeded food categories; expanded `products` columns
+(`sku`, `compare_at_price_cents`, `low_stock_threshold`, `category_id`);
+a full order-status chain (`pending → paid → confirmed → processing →
+shipped → delivered → cancelled/refunded`) with an atomic, audited
+`transition_order()` SECURITY DEFINER state machine + `order_status_history`
+audit table, restock-on-cancel/refund, and customer notifications; merchant
+visibility RLS policies for `orders`/`order_items`/`order_status_history`;
+6 new merchant product/order API routes; and two real UI workspaces —
+`merchant-products-panel.tsx` (create/edit/publish/archive products,
+verification-gated) and `merchant-orders-panel.tsx` (confirm → process →
+ship with a tracking modal → deliver, plus cancel and status history) —
+rendered in `/dashboard/merchant`, with `/dashboard/admin` upgraded to drive
+the full status chain. Everything shipped through `npm run lint` + `npm run
+build` cleanly. The remaining 173 unchecked items are the reseller module
+(no `resellers` table yet), wallet/commission finance queues beyond
+commission approval, refunds/withdrawals/top-ups, reports/exports, a working
+file-storage UI, super-admin config (maintenance mode, announcements),
+`/api/v1` conventions, tests/CI, and PWA assets.)

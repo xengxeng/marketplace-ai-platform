@@ -40,10 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
-.env*
-
 # local admin tooling (Supabase PAT + SQL runner) - never commit
 .supabase-admin/
+
+# local dev server logs
+dev-server.log
 
 .env*

@@ -18,8 +18,39 @@ function formatPeso(cents: number) {
 const STATUS_TONE: Record<string, string> = {
   pending: "border-amber-400/30 bg-amber-500/10 text-amber-300",
   paid: "border-sky-400/30 bg-sky-500/10 text-sky-300",
+  confirmed: "border-indigo-400/30 bg-indigo-500/10 text-indigo-300",
+  processing: "border-violet-400/30 bg-violet-500/10 text-violet-300",
+  shipped: "border-blue-400/30 bg-blue-500/10 text-blue-300",
+  delivered: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   fulfilled: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   cancelled: "border-red-400/30 bg-red-500/10 text-red-300",
+  refunded: "border-rose-400/30 bg-rose-500/10 text-rose-300",
+};
+
+const ADMIN_TRANSITIONS: Record<string, { status: string; label: string; tone: string }[]> = {
+  pending: [
+    { status: "confirmed", label: "Confirm order", tone: "border-indigo-400/30 text-indigo-300 hover:bg-indigo-500/10" },
+    { status: "cancelled", label: "Cancel", tone: "border-red-400/30 text-red-300 hover:bg-red-500/10" },
+  ],
+  paid: [
+    { status: "confirmed", label: "Confirm order", tone: "border-indigo-400/30 text-indigo-300 hover:bg-indigo-500/10" },
+    { status: "cancelled", label: "Cancel", tone: "border-red-400/30 text-red-300 hover:bg-red-500/10" },
+  ],
+  confirmed: [
+    { status: "processing", label: "Start processing", tone: "border-violet-400/30 text-violet-300 hover:bg-violet-500/10" },
+    { status: "cancelled", label: "Cancel", tone: "border-red-400/30 text-red-300 hover:bg-red-500/10" },
+  ],
+  processing: [
+    { status: "shipped", label: "Mark shipped", tone: "border-blue-400/30 text-blue-300 hover:bg-blue-500/10" },
+    { status: "cancelled", label: "Cancel", tone: "border-red-400/30 text-red-300 hover:bg-red-500/10" },
+  ],
+  shipped: [
+    { status: "delivered", label: "Mark delivered", tone: "border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/10" },
+    { status: "cancelled", label: "Cancel", tone: "border-red-400/30 text-red-300 hover:bg-red-500/10" },
+  ],
+  delivered: [
+    { status: "refunded", label: "Refund", tone: "border-rose-400/30 text-rose-300 hover:bg-rose-500/10" },
+  ],
 };
 
 export function AdminOrdersPanel() {
@@ -93,44 +124,43 @@ export function AdminOrdersPanel() {
         <p className="mt-6 text-sm text-zinc-400">No orders yet.</p>
       ) : (
         <div className="mt-6 space-y-3">
-          {orders.map((order) => (
-            <div
-              key={order.id}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-            >
-              <div>
-                <p className="font-medium text-white">Order {order.id.slice(0, 8)}</p>
-                <p className="mt-1 text-sm text-zinc-400">
-                  {formatPeso(order.total_cents)} · {new Date(order.created_at).toLocaleString("en-PH")}
-                </p>
-              </div>
+          {orders.map((order) => {
+            const transitions = ADMIN_TRANSITIONS[order.status] ?? [];
+            return (
+              <div
+                key={order.id}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
+              >
+                <div>
+                  <p className="font-medium text-white">Order {order.id.slice(0, 8)}</p>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    {formatPeso(order.total_cents)} · {new Date(order.created_at).toLocaleString("en-PH")}
+                  </p>
+                </div>
 
-              <div className="flex items-center gap-3">
-                <span className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${STATUS_TONE[order.status] ?? "border-white/10 text-zinc-300"}`}>
-                  {order.status}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${STATUS_TONE[order.status] ?? "border-white/10 text-zinc-300"}`}>
+                    {order.status}
+                  </span>
 
-                {["pending", "paid"].includes(order.status) ? (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => updateStatus(order.id, "fulfilled")}
-                      disabled={updatingId === order.id}
-                      className="rounded-full border border-emerald-400/30 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Mark fulfilled
-                    </button>
-                    <button
-                      onClick={() => updateStatus(order.id, "cancelled")}
-                      disabled={updatingId === order.id}
-                      className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : null}
+                  {transitions.length > 0 ? (
+                    <div className="flex gap-2">
+                      {transitions.map((t) => (
+                        <button
+                          key={t.status}
+                          onClick={() => updateStatus(order.id, t.status)}
+                          disabled={updatingId === order.id}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition hover:bg-opacity-20 disabled:cursor-not-allowed disabled:opacity-60 ${t.tone}`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
