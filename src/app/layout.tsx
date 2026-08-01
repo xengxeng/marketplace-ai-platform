@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Marketplace-AI",
-  description: "Enterprise marketplace platform with merchant and reseller commerce",
+  title: "FOODIFY",
+  description: "Enterprise food marketplace platform with merchant and reseller commerce",
 };
 
 export default function RootLayout({

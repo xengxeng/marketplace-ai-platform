@@ -14,11 +14,11 @@ export default function Home() {
       <header className="flex items-center justify-between rounded-full border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-rose-700 font-semibold text-white">
-            MA
+            F
           </div>
           <div>
-            <p className="text-sm font-semibold text-white">Marketplace-AI</p>
-            <p className="text-xs text-zinc-400">Enterprise commerce platform</p>
+            <p className="text-sm font-semibold text-white">FOODIFY</p>
+            <p className="text-xs text-zinc-400">Enterprise food marketplace</p>
           </div>
         </div>
         <nav className="flex items-center gap-4 text-sm text-zinc-300">
@@ -37,7 +37,7 @@ export default function Home() {
             Verified commerce • Reseller-led growth • Finance controls
           </p>
           <h1 className="text-4xl font-semibold leading-tight text-white sm:text-5xl">
-            A premium marketplace for merchants, resellers, and finance teams.
+            A premium food marketplace for merchants, resellers, and finance teams.
           </h1>
           <p className="mt-5 max-w-xl text-lg text-zinc-300">
             Launch a protected commerce platform with OTP sign-in, customer-gated reseller checkout, merchant verification, wallet-ledger movements, and platform operations built in from day one.

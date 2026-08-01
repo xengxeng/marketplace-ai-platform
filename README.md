@@ -1,6 +1,6 @@
-# Marketplace-AI
+# FOODIFY
 
-A premium enterprise marketplace platform built with Next.js, TypeScript, and Supabase.
+A premium enterprise food marketplace platform built with Next.js, TypeScript, and Supabase.
 
 ## Environment variables
 
