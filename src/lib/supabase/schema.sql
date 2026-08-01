@@ -116,6 +116,18 @@ drop policy if exists "merchants_select_admin" on public.merchants;
 create policy "merchants_select_admin" on public.merchants for select using (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
 );
+drop policy if exists "merchants_update_admin" on public.merchants;
+create policy "merchants_update_admin" on public.merchants for update using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+) with check (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+-- Verified status is meant to be publicly checkable (it's a trust badge, and
+-- the products verification-gate policy's EXISTS subquery needs to be able
+-- to see it for anon/public readers, or every "verified merchant" product
+-- silently disappears from browsing).
+drop policy if exists "merchants_select_public_verified" on public.merchants;
+create policy "merchants_select_public_verified" on public.merchants for select using (status = 'verified');
 
 drop policy if exists "products_select_active_or_own" on public.products;
 create policy "products_select_active_or_own" on public.products for select using (
@@ -265,3 +277,27 @@ end;
 $$;
 
 grant execute on function public.place_order(uuid, uuid) to authenticated;
+
+-- Activity logs
+
+create table if not exists public.activity_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid not null references public.profiles(id) on delete cascade,
+  action text not null,
+  target_type text not null,
+  target_id uuid,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_logs_created_at_idx on public.activity_logs (created_at desc);
+
+alter table public.activity_logs enable row level security;
+
+drop policy if exists "activity_logs_insert_self" on public.activity_logs;
+create policy "activity_logs_insert_self" on public.activity_logs for insert with check (auth.uid() = actor_id);
+
+drop policy if exists "activity_logs_select_admin" on public.activity_logs;
+create policy "activity_logs_select_admin" on public.activity_logs for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);

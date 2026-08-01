@@ -49,7 +49,7 @@ anywhere in the repository.
 | 08 | Authentication | Partial | Gmail sign-in-link flow works end-to-end via Supabase's built-in `signInWithOtp` + PKCE `exchangeCodeForSession` in `/auth/callback` (switched from typed-code to click-link since the default email template has no `{{ .Token }}`); no custom `otp_codes` table, hashing, rate limiting, session/device management, or logout endpoints. |
 | 09 | User Roles | Partial | `role` check-constraint exists with 6 of 7 values (missing `merchant_staff`); no onboarding endpoints, no invite flow. |
 | 10 | Permission Matrix | Partial | `src/lib/auth/require-role.ts` + per-page role checks (2026-08-01) now gate all 4 role dashboards server-side (`/dashboard/admin`, `/dashboard/finance`, `/dashboard/merchant`, `/dashboard/reseller`) and the `/dashboard` layout redirects unauthenticated visitors to `/auth` — a real route guard, though coarse-grained (role membership only, no fine-grained `permissions` table or `assertPermission()` helper). |
-| 11 | Merchant Module | Scaffolded | Bare `merchants` table only; no onboarding wizard, documents, staff, or storefront. |
+| 11 | Merchant Module | Partial | A real (minimal) onboarding loop now works end-to-end (2026-08-01): `POST /api/merchants/apply` lets a signed-in user submit a business name and creates a `pending` merchant row; `/dashboard/merchant` shows the right state (apply form / pending / suspended / verified) based on live data; admin can approve/suspend via `/dashboard/admin`. Verified in the browser via the suspend→approve loop (product visibility flipped off and back on correctly). No document upload, staff, or public storefront route. |
 | 12 | Reseller Module | Not started | No `resellers` table or any reseller-specific code exists at all. |
 | 13 | Product Module | Partial | `/products` (`src/app/products/page.tsx`) now server-renders live `products` rows (joined to `merchants.business_name`) filtered to `status = 'active'`, with real PHP-peso formatting and a working "Add to cart" button. `products` gained `description`/`category`/`image_url` columns (2026-08-01). Still no category/variant/image tables, no merchant-facing create/edit form, no bulk import, no `/api/v1/products` REST surface (the read path is a direct Supabase query from the server component, not an API route). |
 | 14 | Customer Module | Not started | No `customers` table or CRM UI. |
@@ -59,16 +59,16 @@ anywhere in the repository.
 | 18 | Wallet Ledger | Scaffolded | Bare `wallet_ledger` table only; no `wallets`, `withdrawals`, `top_ups`, `refunds` tables or endpoints. |
 | 19 | Commission Engine | Partial | `place_order()` now creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id` (2026-08-01) — verified via a direct SQL-simulated call. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI path currently sets `reseller_id` on checkout (the mechanism works but is dormant until a reseller-assignment flow exists). |
 | 20 | Finance Module | Scaffolded | `/dashboard/finance` is an 11-line static placeholder page; no refund/withdrawal/top-up queues. |
-| 21 | Approval Workflow | Not started | No `approval_requests`/`approval_history` tables or endpoints. |
+| 21 | Approval Workflow | Partial | No generic `approval_requests`/`approval_history` tables (the spec's cross-domain queue). Instead, a working single-purpose approval flow exists for merchant verification: pending → verified/suspended, admin-only, RLS-enforced, logged to `activity_logs`, verified live in the browser (2026-08-01). Order fulfillment (Module 17) is a second working approval-shaped flow of the same kind. Neither generalizes into the spec's one queue for all approval types. |
 | 22 | Notification Center | Not started | No `notifications` table, bell UI, or `notify()` service. |
-| 23 | Activity Logs | Not started | No `activity_logs` table or audit trail anywhere. |
+| 23 | Activity Logs | Partial | `activity_logs` table + RLS shipped 2026-08-01 (insert-own, admin-only select). `order_placed`, `order_status_changed`, and `merchant_status_changed` events are logged from their respective API routes and rendered in a real "Recent activity" audit panel on `/dashboard/admin` — verified showing a real logged transition in the browser. Most privileged actions still aren't wired to log anything (checkout item-level events, auth events, RLS-denied attempts), and there's no search/export UI. |
 | 24 | Reports & Analytics | Partial | `/dashboard` overview (2026-08-01) now computes Total Revenue, Total Orders, Active Merchants, and Pending Orders from live `orders`/`merchants` queries instead of hardcoded strings, and "Recent orders" lists real orders with real timestamps. No CSV/Excel/PDF export, no `report_exports` table, no trend charts (still a "coming soon" placeholder panel). |
 | 25 | File Management | Scaffolded | `/api/upload` accepts a file but explicitly does not persist it; no `files` table, no Storage buckets configured. |
 | 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar) and, as of 2026-08-01, so is a growing share of the content: the overview page shows live revenue/order/merchant KPIs and a real recent-orders feed (no more hardcoded numbers), and `/dashboard/admin` shows a real, functional order-fulfillment list instead of a placeholder. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/merchant`, `/dashboard/reseller`, `/dashboard/finance` remain `<ComingSoonPanel>` with no real data; the topbar search input and user chip are still decorative. |
 | 27 | Super Admin | Scaffolded | `/dashboard/admin` is an 11-line static placeholder; no settings, maintenance mode, or audit UI. |
 | 28 | Security | Partial | RLS now enabled on all 6 tables with owner-based policies (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
 | 29 | API Design | Not started | 8 ad hoc routes exist (`/api/health`, `/api/upload`, `/api/auth/profile`, `/auth/callback`, `/api/cart/items` [POST], `/api/cart/items/[id]` [DELETE], `/api/cart` [GET], `/api/checkout` [POST]); none under `/api/v1`, no standard error envelope, no resource CRUD beyond cart/checkout. |
-| 30 | Database RLS | Partial | RLS enabled + owner-based select/insert/update policies on all 6 existing tables (`profiles`, `merchants`, `products`, `orders`, `wallet_ledger`, `commissions`), added 2026-08-01 via Supabase SQL editor and mirrored in `schema.sql`. Still no role-based (finance/admin) policies and no service-role-only write restriction enforced beyond the absence of user insert/update policies on ledger tables. |
+| 30 | Database RLS | Partial | RLS enabled on all 10 tables with owner-based AND role-based (admin/finance_admin) policies, plus a real cross-table RLS bug found and fixed during live verification (a merchant-visibility subquery was silently blocking all product visibility for anonymous readers). |
 | 31 | DevOps | Not started | No `.github/workflows`, no CI, no migrations folder; npm lockfile present instead of the mandated pnpm. |
 | 32 | Deployment | Scaffolded | Minimal `vercel.json` plus a working `/api/health` endpoint; no maintenance mode, no rollback tooling. |
 | 33 | Testing | Not started | No test files, no test framework installed. |
@@ -386,9 +386,10 @@ control" requirements are not.
 
 - [x] RLS enabled on all 9 existing tables (`profiles`, `merchants`, `products`, `orders`, `wallet_ledger`, `commissions`, `carts`, `cart_items`, `order_items` — `schema.sql` bottom section; the last 3 added 2026-08-01)
 - [x] Owner-based policies for merchant/product/cart/order data (`merchants`/`products` scoped to `owner_id`/`merchant_id` ownership chain, `orders` scoped to `customer_id`/`reseller_id`, `carts`/`cart_items` scoped to `customer_id`, `order_items` scoped via its parent order's ownership)
-- [ ] Role-based policies for finance/admin access — does not exist (no policy grants broader access to `finance_admin`/`admin`/`super_admin` roles yet; those roles currently see the same owner-scoped rows as anyone else)
-- [x] Service-role-only write policies for ledger tables — `wallet_ledger` and `commissions` have select-only policies for the owning user and no insert/update policy for authenticated users, so writes are only possible via trusted server-side code (no ledger-write code path exists yet, but the RLS shape is correct for when one is added)
+- [x] Role-based policies for finance/admin access (2026-08-01) — `orders_select_admin`/`orders_update_admin` (admin/super_admin/finance_admin can see and, for admin roles, update all orders, not just their own) and `merchants_select_admin`/`merchants_update_admin` (admin can see and update all merchants) now exist, driving the real dashboard KPI aggregates and the admin order/merchant management panels.
+- [x] Service-role-only write policies for ledger tables — `wallet_ledger` and `commissions` have select-only policies for the owning user and no insert/update policy for authenticated users, so writes are only possible via trusted server-side code (`commissions` is now written by `place_order()`; `wallet_ledger` still has no write path)
 - [x] Controlled RLS bypass for a multi-table transaction — `place_order()` is `SECURITY DEFINER` (deliberately bypasses per-statement RLS) but re-implements the authorization check itself (`p_customer_id <> auth.uid()` raises an exception), which is the standard, audited pattern for this in Postgres/Supabase rather than a security hole
+- [x] Fixed a real cross-table RLS bug found during verification (2026-08-01): the merchant-verification-gate policy on `products` checks merchant status via an `EXISTS` subquery against `merchants` — but that subquery is *itself* subject to `merchants`' own RLS, and there was no policy letting anon/public readers see any merchant row, so the check always evaluated false and silently hid every product regardless of merchant status. Fixed with an explicit `merchants_select_public_verified` policy (verified status is meant to be publicly checkable — that's what a trust badge is for). General lesson for this codebase: any RLS policy with a subquery into another RLS-protected table needs that table to have a policy permitting the read, or the subquery silently returns nothing.
 
 ## 31 — DevOps
 
@@ -450,13 +451,16 @@ control" requirements are not.
 ## Totals
 
 Across sections 05–37 (the buildable modules), this checklist contains
-**238 individually verifiable deliverables** (database tables, API
-endpoints, and key UI/feature items): **52 checked as done, 186 unchecked**
-(updated a fourth time the same day after: real dashboard KPIs replacing all
-hardcoded numbers, Modules 24/26; a merchant-verification gate on public
-product visibility, Module 13; and a working order-status transition flow
-with a real admin order list, Module 17 — all verified working in the
-browser against live data)
+**239 individually verifiable deliverables** (database tables, API
+endpoints, and key UI/feature items): **54 checked as done, 185 unchecked**
+(updated a fifth time the same day after: an `activity_logs` audit trail
+wired into checkout/order-status/merchant-status actions, Module 23; a real
+merchant onboarding → admin approval loop with a working verification gate,
+Modules 11/21; and a genuine cross-table RLS bug found and fixed while
+verifying that loop — a merchant-visibility subquery was silently hiding
+every product from anonymous shoppers, Module 30. Also fixed in this pass: a
+Next.js "cookies can only be modified in a Server Component" crash on
+`/dashboard/*` that had been present since the layout redesign.)
 (updated 2026-08-01, third pass, after building a real core commerce spine —
 Modules 06, 13, 15, 16, 17, 29, and 30 each gained several new done items:
 `carts`/`cart_items`/`order_items` tables with RLS, a live `/products` page

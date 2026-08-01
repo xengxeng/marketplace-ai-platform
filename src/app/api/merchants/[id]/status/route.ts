@@ -3,8 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSessionProfile } from "@/lib/auth/require-role";
 import { logActivity } from "@/lib/activity/log";
 
-const VALID_STATUSES = ["pending", "paid", "fulfilled", "cancelled"];
-const TERMINAL_STATUSES = ["fulfilled", "cancelled"];
+const VALID_STATUSES = ["pending", "verified", "suspended"];
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -29,17 +28,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
   }
 
-  const { data: existing, error: fetchError } = await supabase.from("orders").select("status").eq("id", id).maybeSingle();
+  const { data: existing, error: fetchError } = await supabase.from("merchants").select("status").eq("id", id).maybeSingle();
 
   if (fetchError || !existing) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return NextResponse.json({ error: "Merchant not found" }, { status: 404 });
   }
 
-  if (TERMINAL_STATUSES.includes(existing.status)) {
-    return NextResponse.json({ error: `Order is already ${existing.status} and cannot be changed` }, { status: 409 });
-  }
-
-  const { error: updateError } = await supabase.from("orders").update({ status }).eq("id", id);
+  const { error: updateError } = await supabase.from("merchants").update({ status }).eq("id", id);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -47,8 +42,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   await logActivity(supabase, {
     actorId: user.id,
-    action: "order_status_changed",
-    targetType: "order",
+    action: "merchant_status_changed",
+    targetType: "merchant",
     targetId: id,
     metadata: { from: existing.status, to: status },
   });

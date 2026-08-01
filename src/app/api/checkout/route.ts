@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { logActivity } from "@/lib/activity/log";
 
 export async function POST() {
   const supabase = await createServerSupabaseClient();
@@ -20,6 +21,13 @@ export async function POST() {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  await logActivity(supabase, {
+    actorId: userData.user.id,
+    action: "order_placed",
+    targetType: "order",
+    targetId: orderId,
+  });
 
   return NextResponse.json({ orderId });
 }
