@@ -55,16 +55,16 @@ anywhere in the repository.
 | 14 | Customer Module | Not started | No `customers` table or CRM UI. |
 | 15 | Cart Module | Partial | `carts`/`cart_items` tables + RLS shipped 2026-08-01. `POST /api/cart/items` (add/increment), `GET /api/cart` (list with product join + computed subtotals), `DELETE /api/cart/items/:id` (remove) all work against real data; `/cart` page lists items and totals live. No quantity-adjust-in-place, no reseller customer-gate, no wishlist. |
 | 16 | Checkout Module | Partial | `/checkout` page + `POST /api/checkout` call a new `place_order()` Postgres function (`SECURITY DEFINER`, stock-checked, atomic) that creates the order, writes `order_items`, decrements `products.stock_int`, and marks the cart `converted` — verified end-to-end in the browser with real stock decrementing correctly. No address/delivery/payment-method steps, no verification gate (spec requires blocking unverified merchants/resellers; not enforced here), no `/api/v1` path convention. |
-| 17 | Order System | Partial | `orders` gained a real `order_items` child table (2026-08-01) via `place_order()`; `/orders/[id]` renders a real confirmation page (line items, quantities, total) reading live data, RLS-gated to the owning customer. Still only 4 status values (`pending/paid/fulfilled/cancelled`, not the spec's full state machine), no `order_status_history`, no status-transition endpoint, no order list UI, no public tracking page. |
+| 17 | Order System | Partial | `orders` gained a real `order_items` child table (2026-08-01) via `place_order()`; `/orders/[id]` renders a real confirmation page reading live data. Admin can now list all orders and transition `pending`/`paid` → `fulfilled`/`cancelled` via `PATCH /api/orders/:id/status` (terminal-state guarded), rendered in `/dashboard/admin`. Still only 4 status values (not the spec's full `confirmed→processing→shipped→delivered` chain), no `order_status_history` audit trail, no public tracking page. |
 | 18 | Wallet Ledger | Scaffolded | Bare `wallet_ledger` table only; no `wallets`, `withdrawals`, `top_ups`, `refunds` tables or endpoints. |
 | 19 | Commission Engine | Partial | `place_order()` now creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id` (2026-08-01) — verified via a direct SQL-simulated call. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI path currently sets `reseller_id` on checkout (the mechanism works but is dormant until a reseller-assignment flow exists). |
 | 20 | Finance Module | Scaffolded | `/dashboard/finance` is an 11-line static placeholder page; no refund/withdrawal/top-up queues. |
 | 21 | Approval Workflow | Not started | No `approval_requests`/`approval_history` tables or endpoints. |
 | 22 | Notification Center | Not started | No `notifications` table, bell UI, or `notify()` service. |
 | 23 | Activity Logs | Not started | No `activity_logs` table or audit trail anywhere. |
-| 24 | Reports & Analytics | Not started | Dashboard KPI numbers are hardcoded strings, not queries. |
+| 24 | Reports & Analytics | Partial | `/dashboard` overview (2026-08-01) now computes Total Revenue, Total Orders, Active Merchants, and Pending Orders from live `orders`/`merchants` queries instead of hardcoded strings, and "Recent orders" lists real orders with real timestamps. No CSV/Excel/PDF export, no `report_exports` table, no trend charts (still a "coming soon" placeholder panel). |
 | 25 | File Management | Scaffolded | `/api/upload` accepts a file but explicitly does not persist it; no `files` table, no Storage buckets configured. |
-| 26 | Dashboards | Scaffolded | The chrome is real: `src/components/dashboard/dashboard-shell.tsx` implements a genuine full-viewport app shell (collapsible desktop sidebar with active-route highlighting, animated mobile drawer, sticky topbar with a search input and user chip) wrapping all `/dashboard/*` routes via `src/app/dashboard/layout.tsx`, and the overview page has animated icon-based KPI cards. As of 2026-08-01 the 4 role pages are also RBAC-gated server-side (wrong role sees an "Access restricted" panel; logged-out visitors are redirected to `/auth`). Still missing: KPI numbers are hardcoded, the search input and user chip are decorative (no state, no session data), and the 4 role pages render a shared `<ComingSoonPanel>` with no real data fetching. |
+| 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar) and, as of 2026-08-01, so is a growing share of the content: the overview page shows live revenue/order/merchant KPIs and a real recent-orders feed (no more hardcoded numbers), and `/dashboard/admin` shows a real, functional order-fulfillment list instead of a placeholder. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/merchant`, `/dashboard/reseller`, `/dashboard/finance` remain `<ComingSoonPanel>` with no real data; the topbar search input and user chip are still decorative. |
 | 27 | Super Admin | Scaffolded | `/dashboard/admin` is an 11-line static placeholder; no settings, maintenance mode, or audit UI. |
 | 28 | Security | Partial | RLS now enabled on all 6 tables with owner-based policies (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
 | 29 | API Design | Not started | 8 ad hoc routes exist (`/api/health`, `/api/upload`, `/api/auth/profile`, `/auth/callback`, `/api/cart/items` [POST], `/api/cart/items/[id]` [DELETE], `/api/cart` [GET], `/api/checkout` [POST]); none under `/api/v1`, no standard error envelope, no resource CRUD beyond cart/checkout. |
@@ -261,10 +261,11 @@ audit columns, soft delete, and RLS-by-default.
 
 - [x] `orders` table gained a working total (`total_cents` is now correctly computed by `place_order()`, verified `₱490.00`/`₱890.00` on two real test orders) — still missing `order_number`, delivery/payment fields, tracking
 - [x] `order_items` table (`schema.sql`, 2026-08-01) — written atomically by `place_order()`; `order_status_history` still does not exist
-- [ ] `order_status` state machine (`pending→confirmed→processing→shipped→delivered`, `cancelled`, `refunded`) with role-gated transitions — not implemented; `orders.status` is still only `pending/paid/fulfilled/cancelled` and every order created by `place_order()` is left at `pending` with no transition path
-- [ ] `PATCH /api/v1/orders/:id/status` with `validateOrderTransition()` — does not exist
+- [x] Minimal order-status transitions with role-gated authorization (2026-08-01) — `pending`/`paid` → `fulfilled`/`cancelled`, admin/super_admin only (new `orders_update_admin` RLS policy), terminal states guarded against further changes. Not the spec's full `confirmed→processing→shipped→delivered→refunded` chain, but a real, working, non-fake subset — verified in the browser (order visibly flips to a green "Fulfilled" badge and its action buttons disappear).
+- [x] `PATCH /api/orders/:id/status` exists and was verified working — not under `/api/v1`, and transition validation is a simple terminal-state guard rather than a full `validateOrderTransition()` matrix
 - [ ] Public order tracking page (`/track/:order_id`) — does not exist (there is a private, RLS-gated `/orders/[id]` confirmation page, which is a different thing)
-- [x] Order confirmation UI exists at `/orders/[id]` (`src/app/orders/[id]/page.tsx`) — real line items, quantities, unit prices, total, RLS-gated to the owning customer/reseller; no order *list* UI, no Order Timeline, no Order Status Badge component
+- [x] Order confirmation UI exists at `/orders/[id]` (`src/app/orders/[id]/page.tsx`) — real line items, quantities, unit prices, total, RLS-gated to the owning customer/reseller
+- [x] Order *list* UI now exists at `/dashboard/admin` (`src/components/dashboard/admin-orders-panel.tsx`, 2026-08-01) — live list of all orders with status badges and fulfill/cancel actions; no Order Timeline or Order Status Badge as reusable components, this is bespoke markup
 
 ## 18 — Wallet Ledger
 
@@ -319,8 +320,8 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 24 — Reports & Analytics
 
-- [ ] Aggregate metrics/report queries (sales, commissions, refunds, GMV) — none exist
-- [ ] KPI cards / trend charts on any dashboard — the `/dashboard` page (`src/app/dashboard/page.tsx:3-8`) shows KPI-styled cards ("Total Revenue $248K," "Active Users 18.2K," etc.) but the values are **hardcoded literal strings in the component**, not derived from any query
+- [x] Aggregate metrics on the overview dashboard (2026-08-01) — `src/app/dashboard/page.tsx` now sums `orders.total_cents`, counts orders, counts verified merchants, and counts pending orders as a live server-side query, not hardcoded data. Still no dedicated commissions/refunds/GMV report queries beyond this one dashboard.
+- [x] KPI cards on `/dashboard` are real — verified in the browser showing ₱1,380 / 2 orders / 1 verified merchant / 2 pending, matching the actual database rows at the time. No trend charts (still a "coming soon" placeholder) — "trend" arrows on the cards are cosmetic (count-based, not time-series).
 - [ ] CSV/Excel/PDF export — does not exist
 - [ ] `report_exports` table — does not exist
 - [ ] `GET /api/v1/reports/summary|sales|commissions|finance`, `POST /reports/export` — none exist
@@ -449,11 +450,13 @@ control" requirements are not.
 ## Totals
 
 Across sections 05–37 (the buildable modules), this checklist contains
-**237 individually verifiable deliverables** (database tables, API
-endpoints, and key UI/feature items): **47 checked as done, 190 unchecked**
-(updated again same day after adding RBAC route gating on the 4 dashboard
-sub-routes, Module 10, and wiring a flat-rate commission calculation into
-`place_order()`, Module 19 — both verified working)
+**238 individually verifiable deliverables** (database tables, API
+endpoints, and key UI/feature items): **52 checked as done, 186 unchecked**
+(updated a fourth time the same day after: real dashboard KPIs replacing all
+hardcoded numbers, Modules 24/26; a merchant-verification gate on public
+product visibility, Module 13; and a working order-status transition flow
+with a real admin order list, Module 17 — all verified working in the
+browser against live data)
 (updated 2026-08-01, third pass, after building a real core commerce spine —
 Modules 06, 13, 15, 16, 17, 29, and 30 each gained several new done items:
 `carts`/`cart_items`/`order_items` tables with RLS, a live `/products` page

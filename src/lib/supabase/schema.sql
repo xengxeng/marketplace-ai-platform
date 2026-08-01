@@ -112,10 +112,17 @@ drop policy if exists "merchants_insert_own" on public.merchants;
 create policy "merchants_insert_own" on public.merchants for insert with check (auth.uid() = owner_id);
 drop policy if exists "merchants_update_own" on public.merchants;
 create policy "merchants_update_own" on public.merchants for update using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
+drop policy if exists "merchants_select_admin" on public.merchants;
+create policy "merchants_select_admin" on public.merchants for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
 
 drop policy if exists "products_select_active_or_own" on public.products;
 create policy "products_select_active_or_own" on public.products for select using (
-  status = 'active' or merchant_id in (select id from public.merchants where owner_id = auth.uid())
+  (status = 'active' and exists (
+    select 1 from public.merchants m where m.id = products.merchant_id and m.status = 'verified'
+  ))
+  or merchant_id in (select id from public.merchants where owner_id = auth.uid())
 );
 drop policy if exists "products_insert_own" on public.products;
 create policy "products_insert_own" on public.products for insert with check (
@@ -132,6 +139,16 @@ drop policy if exists "orders_select_own" on public.orders;
 create policy "orders_select_own" on public.orders for select using (auth.uid() = customer_id or auth.uid() = reseller_id);
 drop policy if exists "orders_insert_own" on public.orders;
 create policy "orders_insert_own" on public.orders for insert with check (auth.uid() = customer_id);
+drop policy if exists "orders_select_admin" on public.orders;
+create policy "orders_select_admin" on public.orders for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin', 'finance_admin'))
+);
+drop policy if exists "orders_update_admin" on public.orders;
+create policy "orders_update_admin" on public.orders for update using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+) with check (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
 
 -- Ledger tables are select-only for owners; writes are performed by trusted server-side code only.
 drop policy if exists "wallet_ledger_select_own" on public.wallet_ledger;
