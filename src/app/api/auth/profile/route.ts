@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { userId, email, fullName, role } = body;
     const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    const resolvedRole = normalizedEmail === "nolascoaubrey32@gmail.com" ? "super_admin" : role ?? "guest";
+    const resolvedRole = normalizedEmail === "xengco09@gmail.com" ? "super_admin" : role ?? "guest";
 
     if (!userId || !email) {
       return NextResponse.json({ error: "Missing user info" }, { status: 400 });

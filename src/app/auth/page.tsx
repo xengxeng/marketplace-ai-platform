@@ -60,7 +60,7 @@ export default function AuthPage() {
     setMessage("");
 
     const normalizedEmail = email.trim().toLowerCase();
-    const resolvedRole = normalizedEmail === "nolascoaubrey32@gmail.com" ? "super_admin" : "guest";
+    const resolvedRole = normalizedEmail === "xengco09@gmail.com" ? "super_admin" : "guest";
 
     const supabase = createBrowserSupabaseClient();
 
