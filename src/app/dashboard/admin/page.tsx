@@ -1,11 +1,24 @@
-export default function AdminDashboardPage() {
+import { AccessRestricted } from "@/components/dashboard/access-restricted";
+import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
+import { getSessionProfile } from "@/lib/auth/require-role";
+
+const ALLOWED_ROLES = ["admin", "super_admin"];
+
+export default async function AdminDashboardPage() {
+  const { role } = await getSessionProfile();
+
+  if (!ALLOWED_ROLES.includes(role ?? "")) {
+    return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;
+  }
+
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 sm:px-8 lg:px-10">
-      <div className="rounded-[2rem] border border-white/10 bg-black/35 p-8 shadow-2xl shadow-red-950/20 backdrop-blur-xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Admin workspace</p>
-        <h1 className="mt-2 text-3xl font-semibold text-white">Platform oversight and moderation</h1>
-        <p className="mt-3 text-zinc-300">This space will manage merchant approvals, system controls, and escalation flows.</p>
-      </div>
-    </main>
+    <ComingSoonPanel
+      icon="ShieldCheck"
+      tone="from-amber-500/40 via-orange-600/30"
+      eyebrow="Admin workspace"
+      title="Platform oversight and moderation"
+      description="This space will manage merchant approvals, system controls, and escalation flows."
+      highlights={["Merchant approvals", "System controls", "Escalations", "Audit logs"]}
+    />
   );
 }

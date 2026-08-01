@@ -9,6 +9,8 @@
    - NEXT_PUBLIC_SUPABASE_URL
    - NEXT_PUBLIC_SUPABASE_ANON_KEY
    - SUPABASE_SERVICE_ROLE_KEY
+   - SUPER_ADMIN_EMAIL (optional; defaults to `xengco09@gmail.com`). The email
+     that should receive the `super_admin` role on first sign-in.
 4. In Authentication → Providers, enable Email OTP.
 5. In SQL Editor, run the contents of src/lib/supabase/schema.sql.
 6. In Storage, create a bucket for marketplace assets and set policies for public reads if needed.

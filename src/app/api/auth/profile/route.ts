@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? "xengco09@gmail.com")
+  .trim()
+  .toLowerCase();
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { userId, email, fullName, role } = body;
     const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    const resolvedRole = normalizedEmail === "xengco09@gmail.com" ? "super_admin" : role ?? "guest";
+    const resolvedRole = normalizedEmail === SUPER_ADMIN_EMAIL ? "super_admin" : role ?? "guest";
 
     if (!userId || !email) {
       return NextResponse.json({ error: "Missing user info" }, { status: 400 });
