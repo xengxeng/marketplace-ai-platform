@@ -1,5 +1,5 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
-import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
+import { FinancePanel } from "@/components/dashboard/finance-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
 
 const ALLOWED_ROLES = ["finance_admin", "admin", "super_admin"];
@@ -12,13 +12,16 @@ export default async function FinanceDashboardPage() {
   }
 
   return (
-    <ComingSoonPanel
-      icon="Wallet"
-      tone="from-emerald-500/40 via-teal-600/30"
-      eyebrow="Finance workspace"
-      title="Payouts, ledgers, and approval queues"
-      description="This module will govern wallet-ledger events, commission approvals, and payout governance."
-      highlights={["Wallet ledger", "Payout approvals", "Commission engine", "Reconciliation"]}
-    />
+    <div className="flex flex-col gap-6">
+      <div>
+        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Finance workspace</p>
+        <h1 className="mt-2 text-3xl font-semibold text-white">Payouts, ledgers, and approval queues</h1>
+        <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+          Approve reseller commissions below to credit their wallet. Refund/withdrawal/top-up queues are still on the roadmap.
+        </p>
+      </div>
+
+      <FinancePanel />
+    </div>
   );
 }

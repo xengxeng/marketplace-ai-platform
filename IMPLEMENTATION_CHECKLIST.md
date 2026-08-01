@@ -56,14 +56,14 @@ anywhere in the repository.
 | 15 | Cart Module | Partial | `carts`/`cart_items` tables + RLS shipped 2026-08-01. `POST /api/cart/items` (add/increment), `GET /api/cart` (list with product join + computed subtotals), `DELETE /api/cart/items/:id` (remove) all work against real data; `/cart` page lists items and totals live. No quantity-adjust-in-place, no reseller customer-gate, no wishlist. |
 | 16 | Checkout Module | Partial | `/checkout` page + `POST /api/checkout` call a new `place_order()` Postgres function (`SECURITY DEFINER`, stock-checked, atomic) that creates the order, writes `order_items`, decrements `products.stock_int`, and marks the cart `converted` — verified end-to-end in the browser with real stock decrementing correctly. No address/delivery/payment-method steps, no verification gate (spec requires blocking unverified merchants/resellers; not enforced here), no `/api/v1` path convention. |
 | 17 | Order System | Partial | `orders` gained a real `order_items` child table (2026-08-01) via `place_order()`; `/orders/[id]` renders a real confirmation page reading live data. Admin can now list all orders and transition `pending`/`paid` → `fulfilled`/`cancelled` via `PATCH /api/orders/:id/status` (terminal-state guarded), rendered in `/dashboard/admin`. Still only 4 status values (not the spec's full `confirmed→processing→shipped→delivered` chain), no `order_status_history` audit trail, no public tracking page. |
-| 18 | Wallet Ledger | Scaffolded | Bare `wallet_ledger` table only; no `wallets`, `withdrawals`, `top_ups`, `refunds` tables or endpoints. |
-| 19 | Commission Engine | Partial | `place_order()` now creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id` (2026-08-01) — verified via a direct SQL-simulated call. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI path currently sets `reseller_id` on checkout (the mechanism works but is dormant until a reseller-assignment flow exists). |
-| 20 | Finance Module | Scaffolded | `/dashboard/finance` is an 11-line static placeholder page; no refund/withdrawal/top-up queues. |
-| 21 | Approval Workflow | Partial | No generic `approval_requests`/`approval_history` tables (the spec's cross-domain queue). Instead, a working single-purpose approval flow exists for merchant verification: pending → verified/suspended, admin-only, RLS-enforced, logged to `activity_logs`, verified live in the browser (2026-08-01). Order fulfillment (Module 17) is a second working approval-shaped flow of the same kind. Neither generalizes into the spec's one queue for all approval types. |
+| 18 | Wallet Ledger | Partial | `wallet_ledger` now has a real, audited write path (2026-08-01): `approve_commission()` credits a reseller's ledger when finance approves their commission, shown live in `/dashboard/finance`. Verified end-to-end in the browser (approve click → `+₱37.80` credit appeared with the right reason string). No `wallets` balance-cache table, no `withdrawals`/`top_ups`/`refunds` tables or endpoints — this is a credit-only ledger so far, no debit/withdrawal path exists. |
+| 19 | Commission Engine | Partial | `place_order()` creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id`; `approve_commission()` (2026-08-01) then approves it and credits the wallet ledger, with a real admin/finance UI for both steps. Full loop verified live in the browser. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI currently lets a reseller be attached to a real checkout (the mechanism is fully wired and tested, but only reachable via a direct SQL-simulated order today). |
+| 20 | Finance Module | Partial | `/dashboard/finance` (2026-08-01) is now a real, functional commission-approval and wallet-ledger view — not a placeholder — verified live in the browser (approved a real pending commission, watched the wallet ledger credit appear). Still no refund/withdrawal/top-up queues, no reconciliation dashboard, no finance KPI tiles. |
+| 21 | Approval Workflow | Partial | No generic `approval_requests`/`approval_history` tables (the spec's cross-domain queue). Instead, three working single-purpose approval flows exist and were each verified live in the browser (2026-08-01): merchant verification (pending → verified/suspended), order fulfillment (Module 17), and commission approval → wallet credit (Modules 18/19). All admin/finance-only, RLS-enforced, logged to `activity_logs`. None of the three generalize into the spec's one queue for all approval types. |
 | 22 | Notification Center | Not started | No `notifications` table, bell UI, or `notify()` service. |
 | 23 | Activity Logs | Partial | `activity_logs` table + RLS shipped 2026-08-01 (insert-own, admin-only select). `order_placed`, `order_status_changed`, and `merchant_status_changed` events are logged from their respective API routes and rendered in a real "Recent activity" audit panel on `/dashboard/admin` — verified showing a real logged transition in the browser. Most privileged actions still aren't wired to log anything (checkout item-level events, auth events, RLS-denied attempts), and there's no search/export UI. |
 | 24 | Reports & Analytics | Partial | `/dashboard` overview (2026-08-01) now computes Total Revenue, Total Orders, Active Merchants, and Pending Orders from live `orders`/`merchants` queries instead of hardcoded strings, and "Recent orders" lists real orders with real timestamps. No CSV/Excel/PDF export, no `report_exports` table, no trend charts (still a "coming soon" placeholder panel). |
-| 25 | File Management | Scaffolded | `/api/upload` accepts a file but explicitly does not persist it; no `files` table, no Storage buckets configured. |
+| 25 | File Management | Partial | `/api/upload` (2026-08-01) now actually persists files to a real Supabase Storage bucket (`uploads`, public-read/authenticated-write) and returns a working public URL — verified live (uploaded a test PNG, confirmed the returned URL serves the file with `200 image/png`). Has basic MIME-allowlist and 5MB size validation, not true magic-byte sniffing. No `files` index table, no signed-upload-URL flow, no dropzone UI anywhere consumes this endpoint yet, no async content-scanning. |
 | 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar) and, as of 2026-08-01, so is a growing share of the content: the overview page shows live revenue/order/merchant KPIs and a real recent-orders feed (no more hardcoded numbers), and `/dashboard/admin` shows a real, functional order-fulfillment list instead of a placeholder. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/merchant`, `/dashboard/reseller`, `/dashboard/finance` remain `<ComingSoonPanel>` with no real data; the topbar search input and user chip are still decorative. |
 | 27 | Super Admin | Scaffolded | `/dashboard/admin` is an 11-line static placeholder; no settings, maintenance mode, or audit UI. |
 | 28 | Security | Partial | RLS now enabled on all 6 tables with owner-based policies (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
@@ -270,9 +270,9 @@ audit columns, soft delete, and RLS-by-default.
 ## 18 — Wallet Ledger
 
 - [ ] `wallets` table (balance cache per owner) — does not exist
-- [ ] `wallet_transactions` ledger table — closest analog is the stub `wallet_ledger` table (`schema.sql:40-47`: `profile_id`, `entry_type`, `amount_cents`, `reason`), missing `currency`, `source` enum, and any linkage to orders/commissions
+- [x] `wallet_ledger` has a real write path now (2026-08-01) — `approve_commission()` inserts a `credit` row with `amount_cents` and a human-readable `reason` referencing the source order; still missing `currency` and a `source` enum column, and no debit path exists at all
 - [ ] `withdrawals` / `top_ups` / `refunds` tables — do not exist
-- [ ] Wallet overview UI (balance, pending, available, transaction history) — does not exist; `/dashboard/finance` is a static placeholder with no wallet data
+- [x] Wallet ledger UI exists — `/dashboard/finance` (`src/components/dashboard/finance-panel.tsx`, 2026-08-01) lists real recent transactions with entry type, reason, and signed amount; not a full "balance/pending/available" overview, just a transaction feed
 - [ ] Withdrawal request modal — does not exist
 - [ ] `GET /api/v1/wallets`, `/wallets/transactions`, `POST /wallets/withdraw|top-up|refund` — none exist
 
@@ -290,7 +290,7 @@ audit columns, soft delete, and RLS-by-default.
 ## 20 — Finance Module
 
 - [ ] `refunds` / `refund_items` / `withdrawals` / `top_ups` / `payout_batches` / `reconciliation_snapshots` tables — none exist
-- [ ] Finance Dashboard KPI tiles (GMV, commissions paid, liabilities, pending approvals, discrepancy alerts) — does not exist; `/dashboard/finance` (`src/app/dashboard/finance/page.tsx`) is an 11-line static card with placeholder copy ("This module will govern...") and zero data fetching
+- [x] Commission approval queue with a real, working action — `/dashboard/finance` (2026-08-01) lists pending commissions and an "Approve & credit wallet" button that calls `approve_commission()`; verified live (₱37.80 commission approved, wallet credited, activity logged). Not the spec's GMV/liabilities/discrepancy KPI tiles, but a genuine working approval queue.
 - [ ] Refund Initiation Modal — does not exist
 - [ ] Withdrawal Approval Queue / Top-Up Approval Queue — do not exist
 - [ ] Reconciliation Dashboard + nightly Cron sweep — does not exist
@@ -329,10 +329,10 @@ audit columns, soft delete, and RLS-by-default.
 ## 25 — File Management
 
 - [ ] `files` polymorphic storage-index table — does not exist
-- [ ] Five Supabase Storage buckets provisioned with public/private policy — no Storage configuration exists in this repo
-- [ ] Signed upload URL flow (`upload-url` → direct-to-storage `PUT` → `confirm`) — not implemented
-- [x] An upload endpoint exists (`src/app/api/upload/route.ts`) that accepts a `multipart/form-data` file and returns its size/filename
-- [ ] ...but it explicitly does **not** persist the file anywhere — it returns the message *"Upload endpoint created. Connect Supabase Storage or Google Drive API to persist files."* (`route.ts:20`), i.e. this is a stub, not a working upload path
+- [x] A Storage bucket now exists and works (2026-08-01) — `uploads` (public-read, authenticated-write RLS on `storage.objects`), one bucket rather than the spec's five domain-specific buckets (`merchant-documents`, `reseller-documents`, `product-images`, `avatars`, `receipts`)
+- [ ] Signed upload URL flow (`upload-url` → direct-to-storage `PUT` → `confirm`) — not implemented (upload goes straight through the Next.js API route, not a signed direct-to-storage PUT)
+- [x] `POST /api/upload` genuinely persists the file and returns a working public URL (2026-08-01) — verified live: uploaded a real PNG, the returned URL served it back with `200 image/png`. Also gained basic MIME-allowlist and 5MB size validation it didn't have before.
+- [x] No content-scanning pipeline, but the previous dishonesty is gone — the endpoint no longer claims to accept files while silently discarding them
 - [ ] `<FileDropzone>` / `<DocumentChecklist>` / `<SecureDocumentViewer>` components — none exist
 - [ ] Async content-scanning pipeline — does not exist
 
@@ -452,15 +452,17 @@ control" requirements are not.
 
 Across sections 05–37 (the buildable modules), this checklist contains
 **239 individually verifiable deliverables** (database tables, API
-endpoints, and key UI/feature items): **54 checked as done, 185 unchecked**
-(updated a fifth time the same day after: an `activity_logs` audit trail
-wired into checkout/order-status/merchant-status actions, Module 23; a real
-merchant onboarding → admin approval loop with a working verification gate,
-Modules 11/21; and a genuine cross-table RLS bug found and fixed while
-verifying that loop — a merchant-visibility subquery was silently hiding
-every product from anonymous shoppers, Module 30. Also fixed in this pass: a
-Next.js "cookies can only be modified in a Server Component" crash on
-`/dashboard/*` that had been present since the layout redesign.)
+endpoints, and key UI/feature items): **59 checked as done, 180 unchecked**
+(updated a sixth time the same day after: an `activity_logs` audit trail;
+a real merchant onboarding → admin approval loop with a working
+verification gate; a full commission-approval → wallet-credit loop with a
+real finance dashboard; and `/api/upload` now genuinely persisting files to
+Supabase Storage instead of silently discarding them. Two real bugs were
+found and fixed along the way: a Next.js "cookies can only be modified in a
+Server Component" crash that could take down every `/dashboard/*` route, and
+a cross-table RLS bug where a merchant-visibility subquery was silently
+hiding every product from anonymous shoppers regardless of verification
+status.)
 (updated 2026-08-01, third pass, after building a real core commerce spine —
 Modules 06, 13, 15, 16, 17, 29, and 30 each gained several new done items:
 `carts`/`cart_items`/`order_items` tables with RLS, a live `/products` page

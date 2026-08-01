@@ -165,6 +165,10 @@ create policy "orders_update_admin" on public.orders for update using (
 -- Ledger tables are select-only for owners; writes are performed by trusted server-side code only.
 drop policy if exists "wallet_ledger_select_own" on public.wallet_ledger;
 create policy "wallet_ledger_select_own" on public.wallet_ledger for select using (auth.uid() = profile_id);
+drop policy if exists "wallet_ledger_select_admin" on public.wallet_ledger;
+create policy "wallet_ledger_select_admin" on public.wallet_ledger for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin', 'finance_admin'))
+);
 
 drop policy if exists "commissions_select_own" on public.commissions;
 create policy "commissions_select_own" on public.commissions for select using (auth.uid() = reseller_id);
@@ -300,4 +304,61 @@ create policy "activity_logs_insert_self" on public.activity_logs for insert wit
 drop policy if exists "activity_logs_select_admin" on public.activity_logs;
 create policy "activity_logs_select_admin" on public.activity_logs for select using (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+
+-- Commission approval + wallet crediting
+
+drop policy if exists "commissions_select_admin" on public.commissions;
+create policy "commissions_select_admin" on public.commissions for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin', 'finance_admin'))
+);
+
+create or replace function public.approve_commission(p_commission_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text;
+  v_commission record;
+begin
+  select role into v_role from public.profiles where id = auth.uid();
+
+  if v_role not in ('admin', 'super_admin', 'finance_admin') then
+    raise exception 'not authorized';
+  end if;
+
+  select * into v_commission from public.commissions where id = p_commission_id for update;
+
+  if v_commission is null then
+    raise exception 'commission not found';
+  end if;
+
+  if v_commission.status <> 'pending' then
+    raise exception 'commission is already %', v_commission.status;
+  end if;
+
+  update public.commissions set status = 'approved' where id = p_commission_id;
+
+  insert into public.wallet_ledger (profile_id, entry_type, amount_cents, reason)
+  values (v_commission.reseller_id, 'credit', v_commission.amount_cents, 'commission for order ' || v_commission.order_id);
+end;
+$$;
+
+grant execute on function public.approve_commission(uuid) to authenticated;
+
+-- Storage: public "uploads" bucket used by /api/upload. Public read (files
+-- are served by direct URL once uploaded), authenticated-only write.
+
+insert into storage.buckets (id, name, public)
+values ('uploads', 'uploads', true)
+on conflict (id) do nothing;
+
+drop policy if exists "uploads_public_read" on storage.objects;
+create policy "uploads_public_read" on storage.objects for select using (bucket_id = 'uploads');
+
+drop policy if exists "uploads_authenticated_insert" on storage.objects;
+create policy "uploads_authenticated_insert" on storage.objects for insert with check (
+  bucket_id = 'uploads' and auth.role() = 'authenticated'
 );
