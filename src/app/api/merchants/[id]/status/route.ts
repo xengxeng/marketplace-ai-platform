@@ -28,7 +28,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
   }
 
-  const { data: existing, error: fetchError } = await supabase.from("merchants").select("status").eq("id", id).maybeSingle();
+  const { data: existing, error: fetchError } = await supabase
+    .from("merchants")
+    .select("status, owner_id, business_name")
+    .eq("id", id)
+    .maybeSingle();
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: "Merchant not found" }, { status: 404 });
@@ -47,6 +51,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     targetId: id,
     metadata: { from: existing.status, to: status },
   });
+
+  if (status === "verified" || status === "suspended") {
+    await supabase.rpc("notify", {
+      p_recipient_id: existing.owner_id,
+      p_title: status === "verified" ? "Merchant application approved" : "Merchant account suspended",
+      p_body:
+        status === "verified"
+          ? `${existing.business_name} has been verified. Your products are now visible to shoppers.`
+          : `${existing.business_name} has been suspended. Contact support to resolve this.`,
+      p_link: "/dashboard/merchant",
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

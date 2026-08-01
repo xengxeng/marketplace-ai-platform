@@ -29,7 +29,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
   }
 
-  const { data: existing, error: fetchError } = await supabase.from("orders").select("status").eq("id", id).maybeSingle();
+  const { data: existing, error: fetchError } = await supabase.from("orders").select("status, customer_id").eq("id", id).maybeSingle();
 
   if (fetchError || !existing) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -52,6 +52,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     targetId: id,
     metadata: { from: existing.status, to: status },
   });
+
+  if (["fulfilled", "cancelled"].includes(status)) {
+    await supabase.rpc("notify", {
+      p_recipient_id: existing.customer_id,
+      p_title: status === "fulfilled" ? "Order fulfilled" : "Order cancelled",
+      p_body:
+        status === "fulfilled"
+          ? `Your order ${id.slice(0, 8)} has been fulfilled.`
+          : `Your order ${id.slice(0, 8)} was cancelled.`,
+      p_link: `/orders/${id}`,
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

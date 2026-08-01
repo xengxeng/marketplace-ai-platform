@@ -45,3 +45,5 @@ next-env.d.ts
 
 # local admin tooling (Supabase PAT + SQL runner) - never commit
 .supabase-admin/
+
+.env*

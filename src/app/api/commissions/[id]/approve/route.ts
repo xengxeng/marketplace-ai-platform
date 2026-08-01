@@ -20,6 +20,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
   }
 
+  const { data: commission } = await supabase.from("commissions").select("reseller_id, amount_cents").eq("id", id).maybeSingle();
+
   const { error } = await supabase.rpc("approve_commission", { p_commission_id: id });
 
   if (error) {
@@ -32,6 +34,15 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     targetType: "commission",
     targetId: id,
   });
+
+  if (commission) {
+    await supabase.rpc("notify", {
+      p_recipient_id: commission.reseller_id,
+      p_title: "Commission approved",
+      p_body: `Your commission of ₱${(commission.amount_cents / 100).toFixed(2)} has been approved and credited to your wallet.`,
+      p_link: "/dashboard/finance",
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -60,15 +60,15 @@ anywhere in the repository.
 | 19 | Commission Engine | Partial | `place_order()` creates a `pending` `commissions` row (flat 10% of order total) when an order carries a `reseller_id`; `approve_commission()` (2026-08-01) then approves it and credits the wallet ledger, with a real admin/finance UI for both steps. Full loop verified live in the browser. Still no `commission_rules` table, no product/category/platform scope resolution, no tiers, no reversal path, and no UI currently lets a reseller be attached to a real checkout (the mechanism is fully wired and tested, but only reachable via a direct SQL-simulated order today). |
 | 20 | Finance Module | Partial | `/dashboard/finance` (2026-08-01) is now a real, functional commission-approval and wallet-ledger view — not a placeholder — verified live in the browser (approved a real pending commission, watched the wallet ledger credit appear). Still no refund/withdrawal/top-up queues, no reconciliation dashboard, no finance KPI tiles. |
 | 21 | Approval Workflow | Partial | No generic `approval_requests`/`approval_history` tables (the spec's cross-domain queue). Instead, three working single-purpose approval flows exist and were each verified live in the browser (2026-08-01): merchant verification (pending → verified/suspended), order fulfillment (Module 17), and commission approval → wallet credit (Modules 18/19). All admin/finance-only, RLS-enforced, logged to `activity_logs`. None of the three generalize into the spec's one queue for all approval types. |
-| 22 | Notification Center | Not started | No `notifications` table, bell UI, or `notify()` service. |
+| 22 | Notification Center | Partial | `notifications` table + `notify()` (`SECURITY DEFINER`, staff-role-gated) shipped 2026-08-01, wired into 3 real events (order fulfilled/cancelled, merchant verified/suspended, commission approved). A real, working bell now lives in the dashboard topbar (`src/components/dashboard/notification-bell.tsx`) with an unread-count badge, dropdown list, click-to-mark-read, and a 30s poll — verified live in the browser (suspended a merchant, watched the badge and dropdown update with the right copy). Not the spec's 35-event taxonomy, no toast/banner variants, no `/unread-count` endpoint (count is derived client-side from the list). |
 | 23 | Activity Logs | Partial | `activity_logs` table + RLS shipped 2026-08-01 (insert-own, admin-only select). `order_placed`, `order_status_changed`, and `merchant_status_changed` events are logged from their respective API routes and rendered in a real "Recent activity" audit panel on `/dashboard/admin` — verified showing a real logged transition in the browser. Most privileged actions still aren't wired to log anything (checkout item-level events, auth events, RLS-denied attempts), and there's no search/export UI. |
 | 24 | Reports & Analytics | Partial | `/dashboard` overview (2026-08-01) now computes Total Revenue, Total Orders, Active Merchants, and Pending Orders from live `orders`/`merchants` queries instead of hardcoded strings, and "Recent orders" lists real orders with real timestamps. No CSV/Excel/PDF export, no `report_exports` table, no trend charts (still a "coming soon" placeholder panel). |
 | 25 | File Management | Partial | `/api/upload` (2026-08-01) now actually persists files to a real Supabase Storage bucket (`uploads`, public-read/authenticated-write) and returns a working public URL — verified live (uploaded a test PNG, confirmed the returned URL serves the file with `200 image/png`). Has basic MIME-allowlist and 5MB size validation, not true magic-byte sniffing. No `files` index table, no signed-upload-URL flow, no dropzone UI anywhere consumes this endpoint yet, no async content-scanning. |
-| 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar) and, as of 2026-08-01, so is a growing share of the content: the overview page shows live revenue/order/merchant KPIs and a real recent-orders feed (no more hardcoded numbers), and `/dashboard/admin` shows a real, functional order-fulfillment list instead of a placeholder. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/merchant`, `/dashboard/reseller`, `/dashboard/finance` remain `<ComingSoonPanel>` with no real data; the topbar search input and user chip are still decorative. |
+| 26 | Dashboards | Partial | The chrome is real (collapsible sidebar, animated mobile drawer, sticky topbar with a genuinely working notification bell as of 2026-08-01) and so is a growing share of the content: live KPIs on `/dashboard`, a real order-fulfillment + merchant-approval + activity-log console on `/dashboard/admin`, a real commission-approval + wallet-ledger view on `/dashboard/finance`, and a real apply/status flow on `/dashboard/merchant`. All 4 role pages are RBAC-gated server-side. Still placeholder: `/dashboard/reseller` remains `<ComingSoonPanel>` with no real data (there's no `resellers` table to back it yet); the topbar search input and user chip are still decorative. |
 | 27 | Super Admin | Scaffolded | `/dashboard/admin` is an 11-line static placeholder; no settings, maintenance mode, or audit UI. |
 | 28 | Security | Partial | RLS now enabled on all 6 tables with owner-based policies (2026-08-01); still no rate limiting, no CSRF checks, no security headers, no session/device management beyond the super-admin email check. |
-| 29 | API Design | Not started | 8 ad hoc routes exist (`/api/health`, `/api/upload`, `/api/auth/profile`, `/auth/callback`, `/api/cart/items` [POST], `/api/cart/items/[id]` [DELETE], `/api/cart` [GET], `/api/checkout` [POST]); none under `/api/v1`, no standard error envelope, no resource CRUD beyond cart/checkout. |
-| 30 | Database RLS | Partial | RLS enabled on all 10 tables with owner-based AND role-based (admin/finance_admin) policies, plus a real cross-table RLS bug found and fixed during live verification (a merchant-visibility subquery was silently blocking all product visibility for anonymous readers). |
+| 29 | API Design | Not started | 16 ad hoc routes now exist across cart, checkout, orders, merchants, commissions, wallet-ledger, notifications, and upload; none under `/api/v1`, no standard error envelope, still ad hoc per-route error shapes. |
+| 30 | Database RLS | Partial | RLS enabled on all 11 tables with owner-based AND role-based (admin/finance_admin) policies, plus a real cross-table RLS bug found and fixed during live verification (a merchant-visibility subquery was silently blocking all product visibility for anonymous readers). |
 | 31 | DevOps | Not started | No `.github/workflows`, no CI, no migrations folder; npm lockfile present instead of the mandated pnpm. |
 | 32 | Deployment | Scaffolded | Minimal `vercel.json` plus a working `/api/health` endpoint; no maintenance mode, no rollback tooling. |
 | 33 | Testing | Not started | No test files, no test framework installed. |
@@ -305,11 +305,11 @@ audit columns, soft delete, and RLS-by-default.
 
 ## 22 — Notification Center
 
-- [ ] `notifications` / `notification_templates` / `notification_preferences` tables — do not exist
-- [ ] `notify()` server-side service — does not exist
-- [ ] `<NotificationBell>` / dropdown / toast / banner components — none exist anywhere in `src/`
-- [ ] Notification taxonomy (35 trigger events) wired to business logic — not applicable; no business logic exists to trigger from
-- [ ] `GET /api/v1/notifications`, `/unread-count`, `PATCH /:id/read` — none exist
+- [x] `notifications` table (`schema.sql`, 2026-08-01) — `notification_templates`/`notification_preferences` do not exist
+- [x] `notify()` server-side service — a `SECURITY DEFINER` Postgres function (staff-role-gated), called via `supabase.rpc()` from three API routes rather than a TypeScript service module, but functionally equivalent
+- [x] `<NotificationBell>` component exists and works (`src/components/dashboard/notification-bell.tsx`) — unread badge, dropdown, click-to-mark-read, 30s poll, verified live in the browser; no toast/banner variants
+- [ ] Notification taxonomy (35 trigger events) wired to business logic — only 3 of the spec's ~35 trigger events are wired (order fulfilled/cancelled, merchant verified/suspended, commission approved)
+- [x] `GET /api/notifications`, `PATCH /:id/read` exist and were verified working — no `/unread-count` endpoint (the client derives it from the list itself); not under `/api/v1`
 
 ## 23 — Activity Logs
 
@@ -452,17 +452,18 @@ control" requirements are not.
 
 Across sections 05–37 (the buildable modules), this checklist contains
 **239 individually verifiable deliverables** (database tables, API
-endpoints, and key UI/feature items): **59 checked as done, 180 unchecked**
-(updated a sixth time the same day after: an `activity_logs` audit trail;
-a real merchant onboarding → admin approval loop with a working
-verification gate; a full commission-approval → wallet-credit loop with a
-real finance dashboard; and `/api/upload` now genuinely persisting files to
-Supabase Storage instead of silently discarding them. Two real bugs were
-found and fixed along the way: a Next.js "cookies can only be modified in a
-Server Component" crash that could take down every `/dashboard/*` route, and
-a cross-table RLS bug where a merchant-visibility subquery was silently
-hiding every product from anonymous shoppers regardless of verification
-status.)
+endpoints, and key UI/feature items): **63 checked as done, 176 unchecked**
+(updated a seventh time the same day after adding a working notification
+system — `notifications` table, staff-gated `notify()` function, and a real
+topbar bell with unread badge/dropdown/mark-as-read — wired into order
+fulfillment, merchant verification, and commission approval; verified live
+in the browser. A live production bug was also diagnosed and fixed in this
+pass: the Supabase redirect-URL allow-list only permitted `localhost`, so
+clicking a sign-in link on the deployed Vercel site could never complete —
+fixed by adding the production URLs, verified by signing in on the live site
+itself. Two Vercel projects exist for this repo; only `marketplace-platform`
+(`marketplace-platform-eosin.vercel.app`) auto-deploys from GitHub — the
+other, `foodify` (`foodify-blush-one.vercel.app`), is stale.)
 (updated 2026-08-01, third pass, after building a real core commerce spine —
 Modules 06, 13, 15, 16, 17, 29, and 30 each gained several new done items:
 `carts`/`cart_items`/`order_items` tables with RLS, a live `/products` page

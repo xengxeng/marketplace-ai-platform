@@ -16,6 +16,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { NotificationBell } from "./notification-bell";
 
 const NAV_ITEMS = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -180,6 +181,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </div>
 
             <div className="ml-auto flex items-center gap-3">
+              <NotificationBell />
               <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-3.5">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-rose-700 text-xs font-semibold text-white">
                   A
