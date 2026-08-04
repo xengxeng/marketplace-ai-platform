@@ -1,6 +1,7 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
 import { AdminOrdersPanel } from "@/components/dashboard/admin-orders-panel";
 import { MerchantApprovalPanel } from "@/components/dashboard/merchant-approval-panel";
+import { ResellerApprovalPanel } from "@/components/dashboard/reseller-approval-panel";
 import { ActivityLogPanel } from "@/components/dashboard/activity-log-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -29,12 +30,13 @@ export default async function AdminDashboardPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Admin workspace</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">Platform oversight and moderation</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          Manage order fulfillment, merchant verification, and review recent activity below. System controls and escalation flows are still on the roadmap.
+          Manage order fulfillment, merchant and reseller verification, and review recent activity below. System controls and escalation flows are still on the roadmap.
         </p>
       </div>
 
       <AdminOrdersPanel />
       <MerchantApprovalPanel />
+      <ResellerApprovalPanel />
       <ActivityLogPanel logs={logs ?? []} />
     </div>
   );

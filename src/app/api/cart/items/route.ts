@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getResellerForUser } from "@/lib/reseller/current";
 
 export async function POST(request: Request) {
   try {
-    const { productId, quantity } = await request.json();
+    const { productId, quantity, customerId } = await request.json();
     const qty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
 
     if (!productId) {
@@ -22,11 +23,13 @@ export async function POST(request: Request) {
 
     const userId = userData.user.id;
 
-    let cart: { id: string } | null = null;
+    const reseller = await getResellerForUser(supabase, userId);
+
+    let cart: { id: string; for_customer_id: string | null } | null = null;
 
     const { data: existingCart, error: cartError } = await supabase
       .from("carts")
-      .select("id")
+      .select("id, for_customer_id")
       .eq("customer_id", userId)
       .eq("status", "active")
       .maybeSingle();
@@ -37,17 +40,59 @@ export async function POST(request: Request) {
 
     cart = existingCart;
 
+    // A reseller always buys on behalf of one of their own customers, so the
+    // API rejects an unattributed add regardless of what the UI did or didn't
+    // show (Module 12, rule 2).
+    let forCustomerId: string | null = cart?.for_customer_id ?? null;
+
+    if (reseller) {
+      if (typeof customerId === "string" && customerId) {
+        const { data: owned } = await supabase
+          .from("customers")
+          .select("id")
+          .eq("id", customerId)
+          .eq("reseller_id", reseller.id)
+          .maybeSingle();
+
+        if (!owned) {
+          return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+        }
+
+        forCustomerId = customerId;
+      }
+
+      if (!forCustomerId) {
+        return NextResponse.json({ error: "Select a customer to buy for first", code: "customer_required" }, { status: 422 });
+      }
+
+      if (reseller.verification_status !== "approved") {
+        return NextResponse.json(
+          { error: "Your reseller account is not verified yet", code: "verification_required" },
+          { status: 403 },
+        );
+      }
+    }
+
     if (!cart) {
       const { data: newCart, error: createError } = await supabase
         .from("carts")
-        .insert({ customer_id: userId })
-        .select("id")
+        .insert({ customer_id: userId, for_customer_id: forCustomerId })
+        .select("id, for_customer_id")
         .single();
 
       if (createError || !newCart) {
         return NextResponse.json({ error: createError?.message ?? "Unable to create cart" }, { status: 500 });
       }
       cart = newCart;
+    } else if (forCustomerId && forCustomerId !== cart.for_customer_id) {
+      const { error: attributeError } = await supabase
+        .from("carts")
+        .update({ for_customer_id: forCustomerId, updated_at: new Date().toISOString() })
+        .eq("id", cart.id);
+
+      if (attributeError) {
+        return NextResponse.json({ error: attributeError.message }, { status: 500 });
+      }
     }
 
     const { data: existingItem } = await supabase
