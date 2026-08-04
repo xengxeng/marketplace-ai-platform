@@ -13,9 +13,10 @@ export async function POST() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
+  // Reseller attribution and the customer gate are resolved inside place_order
+  // from the caller's own profile, so nothing about them is client-supplied.
   const { data: orderId, error } = await supabase.rpc("place_order", {
     p_customer_id: userData.user.id,
-    p_reseller_id: null,
   });
 
   if (error) {

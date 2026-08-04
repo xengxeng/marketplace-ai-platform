@@ -62,7 +62,13 @@ function NavLink({
   );
 }
 
-export function DashboardShell({ children }: { children: ReactNode }) {
+export function DashboardShell({
+  children,
+  displayName,
+}: {
+  children: ReactNode;
+  displayName: string;
+}) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -184,9 +190,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               <NotificationBell />
               <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-3.5">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-rose-700 text-xs font-semibold text-white">
-                  A
+                  {displayName.charAt(0).toUpperCase()}
                 </div>
-                <span className="hidden text-sm font-medium text-white sm:inline">Aubrey</span>
+                <span className="hidden text-sm font-medium text-white sm:inline">{displayName}</span>
               </div>
             </div>
           </header>

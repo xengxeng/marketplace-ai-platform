@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { BuyingForPill, type ForCustomer } from "@/components/reseller/buying-for-pill";
 
 type CartItem = {
   id: string;
@@ -20,6 +21,7 @@ function formatPeso(cents: number) {
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [totalCents, setTotalCents] = useState(0);
+  const [forCustomer, setForCustomer] = useState<ForCustomer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export default function CartPage() {
 
       setItems(body.items ?? []);
       setTotalCents(body.totalCents ?? 0);
+      setForCustomer(body.forCustomer ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load cart.");
     } finally {
@@ -71,6 +74,7 @@ export default function CartPage() {
       <div className="rounded-[2rem] border border-white/10 bg-black/35 p-8 shadow-2xl shadow-red-950/20 backdrop-blur-xl">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Your cart</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">Review your items</h1>
+        <BuyingForPill forCustomer={forCustomer} onChanged={loadCart} />
 
         {loading ? (
           <p className="mt-8 text-sm text-zinc-400">Loading cart…</p>

@@ -213,20 +213,31 @@ create policy "order_items_insert_via_order" on public.order_items for insert wi
 );
 
 -- Atomic checkout: validates stock, creates order + order_items, decrements stock,
--- marks the cart converted, and (if placed through a reseller) records a pending
--- commission. SECURITY DEFINER because it performs a multi-table transaction on
--- the caller's behalf; it re-implements the authorization check itself below.
-create or replace function public.place_order(p_customer_id uuid, p_reseller_id uuid default null)
+-- marks the cart converted, and (if placed by an approved reseller on a customer's
+-- behalf) records a pending commission. SECURITY DEFINER because it performs a
+-- multi-table transaction on the caller's behalf; it re-implements the
+-- authorization check itself below.
+--
+-- Reseller attribution is derived from the caller's own profile and reseller row,
+-- never passed in, so a client cannot claim commission for an arbitrary account.
+drop function if exists public.place_order(uuid, uuid);
+
+create or replace function public.place_order(p_customer_id uuid)
 returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
+  v_cart record;
   v_cart_id uuid;
   v_order_id uuid;
   v_total_cents bigint := 0;
   v_item record;
+  v_role text;
+  v_reseller record;
+  v_reseller_id uuid;
+  v_for_customer_id uuid;
   v_commission_rate numeric := 0.10; -- flat platform-default rate (MVP; no tiered commission_rules table yet)
   v_commission_cents bigint;
 begin
@@ -234,17 +245,42 @@ begin
     raise exception 'not authorized';
   end if;
 
-  select id into v_cart_id from public.carts where customer_id = p_customer_id and status = 'active';
-  if v_cart_id is null then
+  select * into v_cart from public.carts where customer_id = p_customer_id and status = 'active';
+  if v_cart is null then
     raise exception 'no active cart';
   end if;
+  v_cart_id := v_cart.id;
 
   if not exists (select 1 from public.cart_items where cart_id = v_cart_id) then
     raise exception 'cart is empty';
   end if;
 
-  insert into public.orders (customer_id, reseller_id, status, total_cents)
-  values (p_customer_id, p_reseller_id, 'pending', 0)
+  select role into v_role from public.profiles where id = p_customer_id;
+
+  if v_role = 'reseller' then
+    select * into v_reseller from public.resellers where user_id = p_customer_id;
+
+    if v_reseller is null or v_reseller.verification_status <> 'approved' then
+      raise exception 'reseller is not verified';
+    end if;
+
+    if v_cart.for_customer_id is null then
+      raise exception 'select a customer before checking out';
+    end if;
+
+    if not exists (
+      select 1 from public.customers c
+      where c.id = v_cart.for_customer_id and c.reseller_id = v_reseller.id
+    ) then
+      raise exception 'customer does not belong to this reseller';
+    end if;
+
+    v_reseller_id := p_customer_id;
+    v_for_customer_id := v_cart.for_customer_id;
+  end if;
+
+  insert into public.orders (customer_id, reseller_id, for_customer_id, status, total_cents)
+  values (p_customer_id, v_reseller_id, v_for_customer_id, 'pending', 0)
   returning id into v_order_id;
 
   for v_item in
@@ -269,18 +305,18 @@ begin
   update public.orders set total_cents = v_total_cents where id = v_order_id;
   update public.carts set status = 'converted', updated_at = now() where id = v_cart_id;
 
-  if p_reseller_id is not null then
+  if v_reseller_id is not null then
     v_commission_cents := round(v_total_cents * v_commission_rate);
 
     insert into public.commissions (order_id, reseller_id, amount_cents, status)
-    values (v_order_id, p_reseller_id, v_commission_cents, 'pending');
+    values (v_order_id, v_reseller_id, v_commission_cents, 'pending');
   end if;
 
   return v_order_id;
 end;
 $$;
 
-grant execute on function public.place_order(uuid, uuid) to authenticated;
+grant execute on function public.place_order(uuid) to authenticated;
 
 -- Activity logs
 
@@ -410,3 +446,147 @@ end;
 $$;
 
 grant execute on function public.notify(uuid, text, text, text) to authenticated;
+
+-- Resellers and their customer book (CRM-lite)
+
+create table if not exists public.resellers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null unique references public.profiles(id) on delete cascade,
+  full_name text not null,
+  phone_number text not null,
+  address_line text,
+  address_city text,
+  address_province text,
+  address_postal_code text,
+  verification_status text not null default 'pending'
+    check (verification_status in ('unverified','pending','approved','rejected','resubmission_required')),
+  review_note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.customers (
+  id uuid primary key default gen_random_uuid(),
+  reseller_id uuid not null references public.resellers(id) on delete cascade,
+  name text not null,
+  phone text not null,
+  email text,
+  address_line text,
+  address_city text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists customers_reseller_idx on public.customers (reseller_id, created_at desc);
+
+-- "Buying for": the customer a reseller-authored cart/order is attributed to.
+-- Distinct from carts.customer_id / orders.customer_id, which are the signed-in
+-- account that owns the record.
+alter table public.carts add column if not exists for_customer_id uuid references public.customers(id) on delete set null;
+alter table public.orders add column if not exists for_customer_id uuid references public.customers(id) on delete set null;
+
+alter table public.resellers enable row level security;
+alter table public.customers enable row level security;
+
+drop policy if exists "resellers_select_own" on public.resellers;
+create policy "resellers_select_own" on public.resellers for select using (auth.uid() = user_id);
+drop policy if exists "resellers_insert_own" on public.resellers;
+create policy "resellers_insert_own" on public.resellers for insert with check (auth.uid() = user_id);
+drop policy if exists "resellers_update_own" on public.resellers;
+create policy "resellers_update_own" on public.resellers for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "resellers_select_admin" on public.resellers;
+create policy "resellers_select_admin" on public.resellers for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+drop policy if exists "resellers_update_admin" on public.resellers;
+create policy "resellers_update_admin" on public.resellers for update using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+) with check (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
+);
+
+-- A customer belongs to exactly one reseller and is never visible to another.
+drop policy if exists "customers_select_own" on public.customers;
+create policy "customers_select_own" on public.customers for select using (
+  reseller_id in (select id from public.resellers where user_id = auth.uid())
+);
+drop policy if exists "customers_insert_own" on public.customers;
+create policy "customers_insert_own" on public.customers for insert with check (
+  reseller_id in (select id from public.resellers where user_id = auth.uid())
+);
+drop policy if exists "customers_update_own" on public.customers;
+create policy "customers_update_own" on public.customers for update using (
+  reseller_id in (select id from public.resellers where user_id = auth.uid())
+) with check (
+  reseller_id in (select id from public.resellers where user_id = auth.uid())
+);
+
+-- reseller_id is set once at creation and is immutable (no customer transfer in v1).
+create or replace function public.customers_freeze_reseller()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.reseller_id <> old.reseller_id then
+    raise exception 'customers.reseller_id is immutable';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists customers_freeze_reseller on public.customers;
+create trigger customers_freeze_reseller before update on public.customers
+  for each row execute function public.customers_freeze_reseller();
+
+-- Reseller verification review, mirroring the merchant verification loop.
+create or replace function public.review_reseller(p_reseller_id uuid, p_status text, p_note text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text;
+  v_reseller record;
+begin
+  select role into v_role from public.profiles where id = auth.uid();
+
+  if v_role not in ('admin', 'super_admin') then
+    raise exception 'not authorized';
+  end if;
+
+  if p_status not in ('approved', 'rejected', 'resubmission_required') then
+    raise exception 'invalid status %', p_status;
+  end if;
+
+  if p_status <> 'approved' and coalesce(btrim(p_note), '') = '' then
+    raise exception 'a review note is required to reject or request resubmission';
+  end if;
+
+  select * into v_reseller from public.resellers where id = p_reseller_id for update;
+
+  if v_reseller is null then
+    raise exception 'reseller not found';
+  end if;
+
+  update public.resellers
+  set verification_status = p_status, review_note = p_note, updated_at = now()
+  where id = p_reseller_id;
+
+  perform public.notify(
+    v_reseller.user_id,
+    case p_status
+      when 'approved' then 'Reseller verification approved'
+      when 'rejected' then 'Reseller verification rejected'
+      else 'Reseller verification needs changes'
+    end,
+    case p_status
+      when 'approved' then 'You can now check out on behalf of your customers and earn commission.'
+      else coalesce(p_note, 'Please review your submission.')
+    end,
+    '/dashboard/reseller'
+  );
+end;
+$$;
+
+grant execute on function public.review_reseller(uuid, text, text) to authenticated;

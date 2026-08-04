@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { BuyingForPill, type ForCustomer } from "@/components/reseller/buying-for-pill";
 
 type CartItem = {
   id: string;
@@ -19,31 +20,33 @@ export default function CheckoutPage() {
   const router = useRouter();
   const [items, setItems] = useState<CartItem[]>([]);
   const [totalCents, setTotalCents] = useState(0);
+  const [forCustomer, setForCustomer] = useState<ForCustomer | null>(null);
   const [loading, setLoading] = useState(true);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function loadCart() {
-      try {
-        const res = await fetch("/api/cart");
-        const body = await res.json();
+  const loadCart = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cart");
+      const body = await res.json();
 
-        if (!res.ok) {
-          throw new Error(body.error ?? "Unable to load cart.");
-        }
-
-        setItems(body.items ?? []);
-        setTotalCents(body.totalCents ?? 0);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load cart.");
-      } finally {
-        setLoading(false);
+      if (!res.ok) {
+        throw new Error(body.error ?? "Unable to load cart.");
       }
-    }
 
-    loadCart();
+      setItems(body.items ?? []);
+      setTotalCents(body.totalCents ?? 0);
+      setForCustomer(body.forCustomer ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load cart.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadCart();
+  }, [loadCart]);
 
   async function handlePlaceOrder() {
     setPlacing(true);
@@ -69,6 +72,7 @@ export default function CheckoutPage() {
       <div className="rounded-[2rem] border border-white/10 bg-black/35 p-8 shadow-2xl shadow-red-950/20 backdrop-blur-xl">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Checkout</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">Confirm your order</h1>
+        <BuyingForPill forCustomer={forCustomer} onChanged={loadCart} />
 
         {loading ? (
           <p className="mt-8 text-sm text-zinc-400">Loading order summary…</p>
