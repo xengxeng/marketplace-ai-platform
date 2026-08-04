@@ -37,6 +37,7 @@ create table if not exists public.orders (
   reseller_id uuid references public.profiles(id),
   status text not null default 'pending' check (status in ('pending','paid','confirmed','processing','shipped','delivered','fulfilled','cancelled')),
   total_cents bigint not null default 0,
+  shipping_address text,
   created_at timestamptz not null default now()
 );
 
@@ -216,7 +217,11 @@ create policy "order_items_insert_via_order" on public.order_items for insert wi
 -- marks the cart converted, and (if placed through a reseller) records a pending
 -- commission. SECURITY DEFINER because it performs a multi-table transaction on
 -- the caller's behalf; it re-implements the authorization check itself below.
-create or replace function public.place_order(p_customer_id uuid, p_reseller_id uuid default null)
+create or replace function public.place_order(
+  p_customer_id uuid,
+  p_reseller_id uuid default null,
+  p_shipping_address text default null
+)
 returns uuid
 language plpgsql
 security definer
@@ -243,8 +248,8 @@ begin
     raise exception 'cart is empty';
   end if;
 
-  insert into public.orders (customer_id, reseller_id, status, total_cents)
-  values (p_customer_id, p_reseller_id, 'pending', 0)
+  insert into public.orders (customer_id, reseller_id, status, total_cents, shipping_address)
+  values (p_customer_id, p_reseller_id, 'pending', 0, nullif(btrim(coalesce(p_shipping_address, '')), ''))
   returning id into v_order_id;
 
   for v_item in
@@ -280,7 +285,7 @@ begin
 end;
 $$;
 
-grant execute on function public.place_order(uuid, uuid) to authenticated;
+grant execute on function public.place_order(uuid, uuid, text) to authenticated;
 
 -- Activity logs
 

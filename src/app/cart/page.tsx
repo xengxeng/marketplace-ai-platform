@@ -23,6 +23,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   async function fetchCart() {
     const res = await fetch("/api/cart");
@@ -60,6 +61,33 @@ export default function CartPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function handleQuantity(itemId: string, quantity: number) {
+    if (quantity < 1) {
+      return;
+    }
+
+    setUpdatingId(itemId);
+
+    try {
+      const res = await fetch(`/api/cart/items/${itemId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ quantity }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error ?? "Unable to update quantity.");
+      }
+
+      await loadCart();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update quantity.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   async function handleRemove(itemId: string) {
     setRemovingId(itemId);
 
@@ -83,10 +111,10 @@ export default function CartPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Your cart</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">Review your items</h1>
 
+        {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
+
         {loading ? (
           <p className="mt-8 text-sm text-zinc-400">Loading cart…</p>
-        ) : error ? (
-          <p className="mt-8 text-sm text-red-300">{error}</p>
         ) : items.length === 0 ? (
           <div className="mt-8 flex flex-col items-start gap-3">
             <p className="text-sm text-zinc-400">Your cart is empty.</p>
@@ -105,10 +133,29 @@ export default function CartPage() {
                   <div>
                     <p className="font-medium text-white">{item.name}</p>
                     <p className="mt-1 text-sm text-zinc-400">
-                      {formatPeso(item.priceCents)} × {item.quantity}
+                      {formatPeso(item.priceCents)} each · {item.stock} in stock
                     </p>
                   </div>
                   <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleQuantity(item.id, item.quantity - 1)}
+                        disabled={updatingId === item.id || item.quantity <= 1}
+                        aria-label={`Decrease ${item.name} quantity`}
+                        className="h-8 w-8 rounded-full border border-white/10 text-sm text-zinc-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        −
+                      </button>
+                      <span className="w-8 text-center text-sm text-white">{item.quantity}</span>
+                      <button
+                        onClick={() => handleQuantity(item.id, item.quantity + 1)}
+                        disabled={updatingId === item.id || item.quantity >= item.stock}
+                        aria-label={`Increase ${item.name} quantity`}
+                        className="h-8 w-8 rounded-full border border-white/10 text-sm text-zinc-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        +
+                      </button>
+                    </div>
                     <span className="font-medium text-white">{formatPeso(item.subtotalCents)}</span>
                     <button
                       onClick={() => handleRemove(item.id)}

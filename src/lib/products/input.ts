@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { firstIssue } from "@/lib/validation/issue";
+
 export const PRODUCT_STATUSES = ["draft", "active", "archived"] as const;
 
 const blankToNull = (value: string) => (value.length === 0 ? null : value);
@@ -58,11 +60,4 @@ export function toProductRow(input: UpdateProductInput) {
   if (input.status !== undefined) row.status = input.status;
 
   return row;
-}
-
-/** First zod issue, formatted for an API error envelope. */
-export function firstIssue(error: z.ZodError) {
-  const issue = error.issues[0];
-  const path = issue.path.join(".");
-  return path ? `${path}: ${issue.message}` : issue.message;
 }
