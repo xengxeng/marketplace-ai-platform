@@ -41,16 +41,7 @@ export default function AuthPage() {
         return;
       }
 
-      await fetch("/api/auth/profile", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          userId: data.user.id,
-          email: data.user.email,
-          fullName: data.user.user_metadata?.full_name ?? data.user.email,
-          role: "guest",
-        }),
-      });
+      await fetch("/api/auth/profile", { method: "POST" });
 
       router.push("/dashboard");
     });

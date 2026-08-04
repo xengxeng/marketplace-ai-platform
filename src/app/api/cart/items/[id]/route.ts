@@ -14,7 +14,18 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const { error } = await supabase.from("cart_items").delete().eq("id", id);
+  const { data: cart } = await supabase
+    .from("carts")
+    .select("id")
+    .eq("customer_id", userData.user.id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (!cart) {
+    return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
+  }
+
+  const { error } = await supabase.from("cart_items").delete().eq("id", id).eq("cart_id", cart.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
