@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { fetchJson } from "@/lib/api/client";
+import { useApiResource } from "@/lib/api/use-api-resource";
+import { formatPeso } from "@/lib/format";
 
 type CartItem = {
   id: string;
@@ -13,57 +15,22 @@ type CartItem = {
   subtotalCents: number;
 };
 
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-}
+type Cart = { items: CartItem[]; totalCents: number };
+
+const loadCart = () => fetchJson<Cart>("/api/cart", { fallbackError: "Unable to load cart." });
 
 export default function CartPage() {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [totalCents, setTotalCents] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  const { data, loading, error, pendingId, mutate } = useApiResource(loadCart, "Unable to load cart.");
 
-  async function loadCart() {
-    setLoading(true);
-    setError("");
+  const items = data?.items ?? [];
+  const totalCents = data?.totalCents ?? 0;
 
-    try {
-      const res = await fetch("/api/cart");
-      const body = await res.json();
-
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load cart.");
-      }
-
-      setItems(body.items ?? []);
-      setTotalCents(body.totalCents ?? 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load cart.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadCart();
-  }, []);
-
-  async function handleRemove(itemId: string) {
-    setRemovingId(itemId);
-
-    try {
-      const res = await fetch(`/api/cart/items/${itemId}`, { method: "DELETE" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to remove item.");
-      }
-      await loadCart();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to remove item.");
-    } finally {
-      setRemovingId(null);
-    }
+  function handleRemove(itemId: string) {
+    return mutate(
+      itemId,
+      () => fetchJson(`/api/cart/items/${itemId}`, { method: "DELETE", fallbackError: "Unable to remove item." }),
+      "Unable to remove item.",
+    );
   }
 
   return (
@@ -101,10 +68,10 @@ export default function CartPage() {
                     <span className="font-medium text-white">{formatPeso(item.subtotalCents)}</span>
                     <button
                       onClick={() => handleRemove(item.id)}
-                      disabled={removingId === item.id}
+                      disabled={pendingId === item.id}
                       className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-red-400/40 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {removingId === item.id ? "Removing…" : "Remove"}
+                      {pendingId === item.id ? "Removing…" : "Remove"}
                     </button>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { apiError, unexpectedError } from "@/lib/api/responses";
+import { guardFailed, requireUser } from "@/lib/api/guards";
 
 export async function POST(request: Request) {
   try {
@@ -7,32 +8,28 @@ export async function POST(request: Request) {
     const qty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
 
     if (!productId) {
-      return NextResponse.json({ error: "Missing productId" }, { status: 400 });
+      return apiError("Missing productId", 400);
     }
 
-    const supabase = await createServerSupabaseClient();
-    if (!supabase) {
-      return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+    const guard = await requireUser();
+
+    if (guardFailed(guard)) {
+      return guard.response;
     }
 
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData.user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-
-    const userId = userData.user.id;
+    const { supabase, user } = guard;
 
     let cart: { id: string } | null = null;
 
     const { data: existingCart, error: cartError } = await supabase
       .from("carts")
       .select("id")
-      .eq("customer_id", userId)
+      .eq("customer_id", user.id)
       .eq("status", "active")
       .maybeSingle();
 
     if (cartError) {
-      return NextResponse.json({ error: cartError.message }, { status: 500 });
+      return apiError(cartError.message, 500);
     }
 
     cart = existingCart;
@@ -40,12 +37,12 @@ export async function POST(request: Request) {
     if (!cart) {
       const { data: newCart, error: createError } = await supabase
         .from("carts")
-        .insert({ customer_id: userId })
+        .insert({ customer_id: user.id })
         .select("id")
         .single();
 
       if (createError || !newCart) {
-        return NextResponse.json({ error: createError?.message ?? "Unable to create cart" }, { status: 500 });
+        return apiError(createError?.message ?? "Unable to create cart", 500);
       }
       cart = newCart;
     }
@@ -64,7 +61,7 @@ export async function POST(request: Request) {
         .eq("id", existingItem.id);
 
       if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        return apiError(updateError.message, 500);
       }
     } else {
       const { error: insertError } = await supabase
@@ -72,12 +69,12 @@ export async function POST(request: Request) {
         .insert({ cart_id: cart.id, product_id: productId, quantity: qty });
 
       if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+        return apiError(insertError.message, 500);
       }
     }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    return unexpectedError(error);
   }
 }

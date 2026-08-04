@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell } from "lucide-react";
+import { fetchJson } from "@/lib/api/client";
+import { useApiResource } from "@/lib/api/use-api-resource";
 
 type Notification = {
   id: string;
@@ -14,28 +16,20 @@ type Notification = {
   created_at: string;
 };
 
+const loadNotifications = () =>
+  fetchJson<{ notifications: Notification[] }>("/api/notifications", { fallbackError: "Unable to load notifications." });
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { data, loading, setData, refresh } = useApiResource(loadNotifications, "Unable to load notifications.");
 
-  async function load() {
-    try {
-      const res = await fetch("/api/notifications");
-      if (!res.ok) return;
-      const body = await res.json();
-      setNotifications(body.notifications ?? []);
-    } finally {
-      setLoaded(true);
-    }
-  }
+  const notifications = data?.notifications ?? [];
 
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 30000);
+    const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -48,8 +42,12 @@ export function NotificationBell() {
   }, []);
 
   async function markRead(id: string) {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)));
-    await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+    setData((prev) =>
+      prev
+        ? { notifications: prev.notifications.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)) }
+        : prev,
+    );
+    await fetchJson(`/api/notifications/${id}/read`, { method: "PATCH" }).catch(() => {});
   }
 
   const unreadCount = notifications.filter((n) => !n.read_at).length;
@@ -80,7 +78,7 @@ export function NotificationBell() {
           >
             <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Notifications</div>
             <div className="max-h-80 overflow-y-auto">
-              {!loaded ? (
+              {loading ? (
                 <p className="px-3 py-4 text-sm text-zinc-500">Loading…</p>
               ) : notifications.length === 0 ? (
                 <p className="px-3 py-4 text-sm text-zinc-500">No notifications yet.</p>

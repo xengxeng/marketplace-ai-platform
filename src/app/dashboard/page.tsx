@@ -1,20 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { DashboardOverviewClient, type ActivityEntry, type Metric } from "@/components/dashboard/dashboard-overview-client";
-
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
-function timeAgo(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
+import { formatWholePeso, pluralize, shortId, timeAgo } from "@/lib/format";
 
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient();
@@ -50,8 +36,8 @@ export default async function DashboardPage() {
     metrics = [
       {
         label: "Total Revenue",
-        value: formatPeso(totalRevenueCents),
-        changeLabel: `${allOrders.length} order${allOrders.length === 1 ? "" : "s"}`,
+        value: formatWholePeso(totalRevenueCents),
+        changeLabel: pluralize(allOrders.length, "order"),
         up: true,
         icon: "revenue",
         glow: "from-emerald-500/30",
@@ -83,8 +69,8 @@ export default async function DashboardPage() {
     ];
 
     activity = allOrders.slice(0, 5).map((order) => ({
-      title: `Order ${order.id.slice(0, 8)}`,
-      detail: `${formatPeso(order.total_cents ?? 0)} · ${order.status}`,
+      title: `Order ${shortId(order.id)}`,
+      detail: `${formatWholePeso(order.total_cents ?? 0)} · ${order.status}`,
       time: timeAgo(order.created_at),
     }));
   }

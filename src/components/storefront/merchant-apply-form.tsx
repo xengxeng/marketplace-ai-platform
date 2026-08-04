@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fetchJson } from "@/lib/api/client";
+import { errorMessage } from "@/lib/errors";
 
 export function MerchantApplyForm() {
   const router = useRouter();
@@ -14,21 +16,15 @@ export function MerchantApplyForm() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/merchants/apply", {
+      await fetchJson("/api/merchants/apply", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ businessName }),
+        json: { businessName },
+        fallbackError: "Unable to submit application.",
       });
-
-      const body = await res.json();
-
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to submit application.");
-      }
 
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to submit application.");
+      setError(errorMessage(err, "Unable to submit application."));
     } finally {
       setLoading(false);
     }

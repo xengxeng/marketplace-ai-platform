@@ -1,29 +1,28 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { apiError } from "@/lib/api/responses";
+import { guardFailed, requireUser } from "@/lib/api/guards";
 import { logActivity } from "@/lib/activity/log";
 
 export async function POST() {
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+  const guard = await requireUser();
+
+  if (guardFailed(guard)) {
+    return guard.response;
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
+  const { supabase, user } = guard;
 
   const { data: orderId, error } = await supabase.rpc("place_order", {
-    p_customer_id: userData.user.id,
+    p_customer_id: user.id,
     p_reseller_id: null,
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return apiError(error.message, 400);
   }
 
   await logActivity(supabase, {
-    actorId: userData.user.id,
+    actorId: user.id,
     action: "order_placed",
     targetType: "order",
     targetId: orderId,

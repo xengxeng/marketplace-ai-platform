@@ -1,14 +1,13 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
 import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
-
-const ALLOWED_ROLES = ["reseller", "admin", "super_admin"];
+import { hasRole, RESELLER_ROLES } from "@/lib/auth/roles";
 
 export default async function ResellerDashboardPage() {
   const { role } = await getSessionProfile();
 
-  if (!ALLOWED_ROLES.includes(role ?? "")) {
-    return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;
+  if (!hasRole(role, RESELLER_ROLES)) {
+    return <AccessRestricted requiredRoles={RESELLER_ROLES} />;
   }
 
   return (

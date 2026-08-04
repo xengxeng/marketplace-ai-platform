@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ApiError, fetchJson } from "@/lib/api/client";
+import { errorMessage } from "@/lib/errors";
 
 export function AddToCartButton({ productId, inStock }: { productId: string; inStock: boolean }) {
   const router = useRouter();
@@ -13,27 +15,22 @@ export function AddToCartButton({ productId, inStock }: { productId: string; inS
     setMessage("");
 
     try {
-      const res = await fetch("/api/cart/items", {
+      await fetchJson("/api/cart/items", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ productId, quantity: 1 }),
+        json: { productId, quantity: 1 },
+        fallbackError: "Unable to add to cart.",
       });
-
-      const body = await res.json();
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push("/auth");
-          return;
-        }
-        throw new Error(body.error ?? "Unable to add to cart.");
-      }
 
       setState("added");
       setTimeout(() => setState("idle"), 1500);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        router.push("/auth");
+        return;
+      }
+
       setState("error");
-      setMessage(err instanceof Error ? err.message : "Unable to add to cart.");
+      setMessage(errorMessage(err, "Unable to add to cart."));
     }
   }
 

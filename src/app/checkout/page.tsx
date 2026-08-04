@@ -1,7 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { fetchJson } from "@/lib/api/client";
+import { useApiResource } from "@/lib/api/use-api-resource";
+import { errorMessage } from "@/lib/errors";
+import { formatPeso } from "@/lib/format";
 
 type CartItem = {
   id: string;
@@ -11,55 +15,31 @@ type CartItem = {
   subtotalCents: number;
 };
 
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-}
+type Cart = { items: CartItem[]; totalCents: number };
+
+const loadCart = () => fetchJson<Cart>("/api/cart", { fallbackError: "Unable to load cart." });
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [totalCents, setTotalCents] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [placing, setPlacing] = useState(false);
-  const [error, setError] = useState("");
+  const { data, loading, error, setError } = useApiResource(loadCart, "Unable to load cart.");
 
-  useEffect(() => {
-    async function loadCart() {
-      try {
-        const res = await fetch("/api/cart");
-        const body = await res.json();
-
-        if (!res.ok) {
-          throw new Error(body.error ?? "Unable to load cart.");
-        }
-
-        setItems(body.items ?? []);
-        setTotalCents(body.totalCents ?? 0);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load cart.");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadCart();
-  }, []);
+  const items = data?.items ?? [];
+  const totalCents = data?.totalCents ?? 0;
 
   async function handlePlaceOrder() {
     setPlacing(true);
     setError("");
 
     try {
-      const res = await fetch("/api/checkout", { method: "POST" });
-      const body = await res.json();
+      const { orderId } = await fetchJson<{ orderId: string }>("/api/checkout", {
+        method: "POST",
+        fallbackError: "Unable to place order.",
+      });
 
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to place order.");
-      }
-
-      router.push(`/orders/${body.orderId}`);
+      router.push(`/orders/${orderId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to place order.");
+      setError(errorMessage(err, "Unable to place order."));
       setPlacing(false);
     }
   }

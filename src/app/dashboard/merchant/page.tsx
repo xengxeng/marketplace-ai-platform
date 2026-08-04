@@ -1,7 +1,6 @@
 import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
 import { MerchantApplyForm } from "@/components/storefront/merchant-apply-form";
 import { getSessionProfile } from "@/lib/auth/require-role";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 // Any authenticated user (already enforced by the dashboard layout) can load
 // this page: someone with no merchant record yet needs to reach the apply
@@ -9,9 +8,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 // page's own state (no record / pending / suspended / verified) is the real
 // gate on what content and capability the visitor gets.
 export default async function MerchantDashboardPage() {
-  const { user } = await getSessionProfile();
+  const { supabase, user } = await getSessionProfile();
 
-  const supabase = await createServerSupabaseClient();
   const { data: merchant } = supabase && user
     ? await supabase.from("merchants").select("business_name, status").eq("owner_id", user.id).maybeSingle()
     : { data: null };

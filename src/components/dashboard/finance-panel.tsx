@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { fetchJson } from "@/lib/api/client";
+import { useApiResource } from "@/lib/api/use-api-resource";
+import { formatPeso, shortId } from "@/lib/format";
+import { statusBadgeClass } from "@/lib/ui/status";
+import { Panel, PanelActionButton, PanelHeader, PanelMessage, PanelRow } from "./panel";
 
 type Commission = {
   id: string;
@@ -20,63 +24,27 @@ type LedgerEntry = {
   created_at: string;
 };
 
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+async function loadFinanceData() {
+  const [commissions, ledger] = await Promise.all([
+    fetchJson<{ commissions: Commission[] }>("/api/commissions", { fallbackError: "Unable to load commissions." }),
+    fetchJson<{ entries: LedgerEntry[] }>("/api/wallet-ledger", { fallbackError: "Unable to load wallet ledger." }),
+  ]);
+
+  return { commissions: commissions.commissions ?? [], ledger: ledger.entries ?? [] };
 }
 
-const STATUS_TONE: Record<string, string> = {
-  pending: "border-amber-400/30 bg-amber-500/10 text-amber-300",
-  approved: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
-  paid: "border-sky-400/30 bg-sky-500/10 text-sky-300",
-};
-
 export function FinancePanel() {
-  const [commissions, setCommissions] = useState<Commission[]>([]);
-  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const { data, loading, error, pendingId, mutate } = useApiResource(loadFinanceData, "Unable to load finance data.");
 
-  async function load() {
-    setLoading(true);
-    setError("");
+  const commissions = data?.commissions ?? [];
+  const ledger = data?.ledger ?? [];
 
-    try {
-      const [commissionsRes, ledgerRes] = await Promise.all([fetch("/api/commissions"), fetch("/api/wallet-ledger")]);
-      const commissionsBody = await commissionsRes.json();
-      const ledgerBody = await ledgerRes.json();
-
-      if (!commissionsRes.ok) throw new Error(commissionsBody.error ?? "Unable to load commissions.");
-      if (!ledgerRes.ok) throw new Error(ledgerBody.error ?? "Unable to load wallet ledger.");
-
-      setCommissions(commissionsBody.commissions ?? []);
-      setLedger(ledgerBody.entries ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load finance data.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function approve(id: string) {
-    setApprovingId(id);
-
-    try {
-      const res = await fetch(`/api/commissions/${id}/approve`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to approve commission.");
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to approve commission.");
-    } finally {
-      setApprovingId(null);
-    }
+  function approve(id: string) {
+    return mutate(
+      id,
+      () => fetchJson(`/api/commissions/${id}/approve`, { method: "POST", fallbackError: "Unable to approve commission." }),
+      "Unable to approve commission.",
+    );
   }
 
   if (loading) {
@@ -87,65 +55,48 @@ export function FinancePanel() {
     <div className="flex flex-col gap-6">
       {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
-      <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-6 sm:p-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Commission approvals</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">Pending commissions</h2>
-          </div>
-          <span className="text-xs font-medium text-zinc-500">{commissions.length} total</span>
-        </div>
+      <Panel>
+        <PanelHeader eyebrow="Commission approvals" title="Pending commissions" meta={`${commissions.length} total`} />
 
         {commissions.length === 0 ? (
-          <p className="mt-6 text-sm text-zinc-400">
+          <PanelMessage>
             No commissions yet — these are created automatically when an order is placed through a reseller.
-          </p>
+          </PanelMessage>
         ) : (
           <div className="mt-6 space-y-3">
             {commissions.map((commission) => (
-              <div
-                key={commission.id}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-              >
+              <PanelRow key={commission.id}>
                 <div>
                   <p className="font-medium text-white">{formatPeso(commission.amount_cents)}</p>
-                  <p className="mt-1 text-sm text-zinc-400">Order {commission.order_id.slice(0, 8)}</p>
+                  <p className="mt-1 text-sm text-zinc-400">Order {shortId(commission.order_id)}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className={`rounded-full border px-3 py-1 text-xs font-medium capitalize ${STATUS_TONE[commission.status] ?? "border-white/10 text-zinc-300"}`}>
-                    {commission.status}
-                  </span>
+                  <span className={statusBadgeClass(commission.status)}>{commission.status}</span>
                   {commission.status === "pending" ? (
-                    <button
+                    <PanelActionButton
+                      tone="positive"
                       onClick={() => approve(commission.id)}
-                      disabled={approvingId === commission.id}
-                      className="rounded-full border border-emerald-400/30 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={pendingId === commission.id}
                     >
                       Approve &amp; credit wallet
-                    </button>
+                    </PanelActionButton>
                   ) : null}
                 </div>
-              </div>
+              </PanelRow>
             ))}
           </div>
         )}
-      </div>
+      </Panel>
 
-      <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-6 sm:p-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Wallet ledger</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">Recent transactions</h2>
-          </div>
-          <span className="text-xs font-medium text-zinc-500">{ledger.length} entries</span>
-        </div>
+      <Panel>
+        <PanelHeader eyebrow="Wallet ledger" title="Recent transactions" meta={`${ledger.length} entries`} />
 
         {ledger.length === 0 ? (
-          <p className="mt-6 text-sm text-zinc-400">No wallet transactions yet.</p>
+          <PanelMessage>No wallet transactions yet.</PanelMessage>
         ) : (
           <div className="mt-6 space-y-2">
             {ledger.map((entry) => (
-              <div key={entry.id} className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 p-3.5">
+              <PanelRow key={entry.id} compact>
                 <div>
                   <p className="text-sm font-medium text-white capitalize">{entry.entry_type}</p>
                   <p className="mt-1 text-xs text-zinc-500">{entry.reason}</p>
@@ -154,11 +105,11 @@ export function FinancePanel() {
                   {entry.entry_type === "credit" ? "+" : "-"}
                   {formatPeso(entry.amount_cents)}
                 </span>
-              </div>
+              </PanelRow>
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }

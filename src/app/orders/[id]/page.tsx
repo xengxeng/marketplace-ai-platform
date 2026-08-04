@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { relatedRecord } from "@/lib/supabase/relations";
+import { formatPeso } from "@/lib/format";
 
 type OrderItemRow = {
   id: string;
@@ -10,13 +12,8 @@ type OrderItemRow = {
   products: { name: string } | { name: string }[] | null;
 };
 
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-}
-
 function productName(row: OrderItemRow) {
-  if (!row.products) return "Unknown product";
-  return Array.isArray(row.products) ? row.products[0]?.name ?? "Unknown product" : row.products.name;
+  return relatedRecord(row.products)?.name ?? "Unknown product";
 }
 
 export default async function OrderConfirmationPage({ params }: { params: Promise<{ id: string }> }) {

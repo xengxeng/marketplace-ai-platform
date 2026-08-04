@@ -1,14 +1,13 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
 import { FinancePanel } from "@/components/dashboard/finance-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
-
-const ALLOWED_ROLES = ["finance_admin", "admin", "super_admin"];
+import { FINANCE_ROLES, hasRole } from "@/lib/auth/roles";
 
 export default async function FinanceDashboardPage() {
   const { role } = await getSessionProfile();
 
-  if (!ALLOWED_ROLES.includes(role ?? "")) {
-    return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;
+  if (!hasRole(role, FINANCE_ROLES)) {
+    return <AccessRestricted requiredRoles={FINANCE_ROLES} />;
   }
 
   return (
