@@ -1,4 +1,5 @@
 import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
+import { MerchantProductsPanel } from "@/components/dashboard/merchant-products-panel";
 import { MerchantApplyForm } from "@/components/storefront/merchant-apply-form";
 import { getSessionProfile } from "@/lib/auth/require-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -22,14 +23,17 @@ export default async function MerchantDashboardPage() {
 
   if (merchant.status === "pending") {
     return (
-      <ComingSoonPanel
-        icon="Store"
-        tone="from-amber-500/40 via-orange-600/30"
-        eyebrow="Application pending"
-        title={`${merchant.business_name} is awaiting review`}
-        description="An admin needs to verify your business before your products can go live on the marketplace. This usually takes 1-2 business days."
-        highlights={["Verification in progress"]}
-      />
+      <div className="flex flex-col gap-6">
+        <ComingSoonPanel
+          icon="Store"
+          tone="from-amber-500/40 via-orange-600/30"
+          eyebrow="Application pending"
+          title={`${merchant.business_name} is awaiting review`}
+          description="An admin needs to verify your business before your products can go live on the marketplace. This usually takes 1-2 business days. You can prepare your catalog as drafts in the meantime."
+          highlights={["Verification in progress"]}
+        />
+        <MerchantProductsPanel canPublish={false} />
+      </div>
     );
   }
 
@@ -47,13 +51,15 @@ export default async function MerchantDashboardPage() {
   }
 
   return (
-    <ComingSoonPanel
-      icon="Store"
-      tone="from-red-500/40 via-rose-600/30"
-      eyebrow="Merchant workspace"
-      title={`${merchant.business_name} — catalog, inventory, and verification controls`}
-      description="This section will host product management, onboarding review, and merchant status workflows."
-      highlights={["Product catalog", "Verification queue", "Inventory sync", "Staff access"]}
-    />
+    <div className="flex flex-col gap-6">
+      <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-6 sm:p-8">
+        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-300">Merchant workspace</p>
+        <h1 className="mt-2 text-3xl font-semibold text-white">{merchant.business_name}</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400">
+          Your business is verified. Products you mark active appear on the marketplace immediately.
+        </p>
+      </div>
+      <MerchantProductsPanel canPublish />
+    </div>
   );
 }
