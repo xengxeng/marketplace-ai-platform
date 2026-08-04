@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-
-const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? "xengco09@gmail.com")
-  .trim()
-  .toLowerCase();
+import { resolveRole, upsertProfile } from "@/lib/auth/profile";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -17,20 +14,13 @@ export async function GET(request: Request) {
 
       if (!error && data.user) {
         const email = data.user.email ?? "";
-        const normalizedEmail = email.trim().toLowerCase();
-        const resolvedRole = normalizedEmail === SUPER_ADMIN_EMAIL ? "super_admin" : "guest";
 
-        await supabase.from("profiles").upsert(
-          {
-            id: data.user.id,
-            email,
-            full_name: data.user.user_metadata?.full_name ?? email,
-            role: resolvedRole,
-            is_verified: false,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" },
-        );
+        await upsertProfile(supabase, {
+          userId: data.user.id,
+          email,
+          fullName: data.user.user_metadata?.full_name,
+          role: resolveRole(email),
+        });
 
         return NextResponse.redirect(`${origin}/dashboard`);
       }

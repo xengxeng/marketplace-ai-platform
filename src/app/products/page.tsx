@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { AddToCartButton } from "@/components/storefront/add-to-cart-button";
+import { relatedRecord } from "@/lib/supabase/relations";
+import { formatPeso } from "@/lib/format";
 
 type ProductRow = {
   id: string;
@@ -12,13 +14,8 @@ type ProductRow = {
   merchants: { business_name: string } | { business_name: string }[] | null;
 };
 
-function formatPeso(cents: number) {
-  return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
-}
-
 function merchantName(row: ProductRow) {
-  if (!row.merchants) return "Unknown merchant";
-  return Array.isArray(row.merchants) ? row.merchants[0]?.business_name ?? "Unknown merchant" : row.merchants.business_name;
+  return relatedRecord(row.merchants)?.business_name ?? "Unknown merchant";
 }
 
 export default async function ProductsPage() {

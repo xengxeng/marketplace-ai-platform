@@ -1,17 +1,24 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, type ServerSupabaseClient } from "@/lib/supabase/server";
+import type { User } from "@supabase/supabase-js";
 
-export async function getSessionProfile() {
+type SessionProfile = {
+  supabase: ServerSupabaseClient | null;
+  user: User | null;
+  role: string | null;
+};
+
+export async function getSessionProfile(): Promise<SessionProfile> {
   const supabase = await createServerSupabaseClient();
   if (!supabase) {
-    return { user: null, role: null as string | null };
+    return { supabase: null, user: null, role: null };
   }
 
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
-    return { user: null, role: null as string | null };
+    return { supabase, user: null, role: null };
   }
 
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", userData.user.id).maybeSingle();
 
-  return { user: userData.user, role: profile?.role ?? "guest" };
+  return { supabase, user: userData.user, role: profile?.role ?? "guest" };
 }

@@ -29,6 +29,8 @@ export async function createServerSupabaseClient() {
   });
 }
 
+export type ServerSupabaseClient = NonNullable<Awaited<ReturnType<typeof createServerSupabaseClient>>>;
+
 export async function getServerSupabaseClient() {
   return createServerSupabaseClient();
 }

@@ -3,18 +3,15 @@ import { AdminOrdersPanel } from "@/components/dashboard/admin-orders-panel";
 import { MerchantApprovalPanel } from "@/components/dashboard/merchant-approval-panel";
 import { ActivityLogPanel } from "@/components/dashboard/activity-log-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-
-const ALLOWED_ROLES = ["admin", "super_admin"];
+import { hasRole, PLATFORM_ADMIN_ROLES } from "@/lib/auth/roles";
 
 export default async function AdminDashboardPage() {
-  const { role } = await getSessionProfile();
+  const { supabase, role } = await getSessionProfile();
 
-  if (!ALLOWED_ROLES.includes(role ?? "")) {
-    return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;
+  if (!hasRole(role, PLATFORM_ADMIN_ROLES)) {
+    return <AccessRestricted requiredRoles={PLATFORM_ADMIN_ROLES} />;
   }
 
-  const supabase = await createServerSupabaseClient();
   const { data: logs } = supabase
     ? await supabase
         .from("activity_logs")

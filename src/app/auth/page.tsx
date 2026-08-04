@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { fetchJson } from "@/lib/api/client";
+import { errorMessage } from "@/lib/errors";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -41,16 +43,15 @@ export default function AuthPage() {
         return;
       }
 
-      await fetch("/api/auth/profile", {
+      await fetchJson("/api/auth/profile", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+        json: {
           userId: data.user.id,
           email: data.user.email,
           fullName: data.user.user_metadata?.full_name ?? data.user.email,
           role: "guest",
-        }),
-      });
+        },
+      }).catch(() => {});
 
       router.push("/dashboard");
     });
@@ -88,7 +89,7 @@ export default function AuthPage() {
 
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send the sign-in link.");
+      setError(errorMessage(err, "Unable to send the sign-in link."));
     } finally {
       setLoading(false);
     }

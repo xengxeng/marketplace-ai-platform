@@ -1,23 +1,23 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { apiError } from "@/lib/api/responses";
+import { guardFailed, requireUser } from "@/lib/api/guards";
+import { relatedRecord } from "@/lib/supabase/relations";
 
 type ProductJoin = { name: string; price_cents: number; stock_int: number };
 
 export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+  const guard = await requireUser();
+
+  if (guardFailed(guard)) {
+    return guard.response;
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
+  const { supabase, user } = guard;
 
   const { data: cart } = await supabase
     .from("carts")
     .select("id")
-    .eq("customer_id", userData.user.id)
+    .eq("customer_id", user.id)
     .eq("status", "active")
     .maybeSingle();
 
@@ -32,11 +32,11 @@ export async function GET() {
     .order("created_at", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return apiError(error.message, 500);
   }
 
   const normalized = (items ?? []).map((row) => {
-    const product = (Array.isArray(row.products) ? row.products[0] : row.products) as ProductJoin | undefined;
+    const product = relatedRecord(row.products as ProductJoin | ProductJoin[] | null);
     const priceCents = product?.price_cents ?? 0;
     return {
       id: row.id,

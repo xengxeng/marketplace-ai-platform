@@ -1,31 +1,19 @@
-import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getSessionProfile } from "@/lib/auth/require-role";
+import { listResponse } from "@/lib/api/responses";
+import { guardFailed, requireRole } from "@/lib/api/guards";
+import { PLATFORM_ADMIN_ROLES } from "@/lib/auth/roles";
 
 export async function GET() {
-  const { user, role } = await getSessionProfile();
+  const guard = await requireRole(PLATFORM_ADMIN_ROLES);
 
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (guardFailed(guard)) {
+    return guard.response;
   }
 
-  if (!["admin", "super_admin"].includes(role ?? "")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const supabase = await createServerSupabaseClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
-  }
-
-  const { data, error } = await supabase
-    .from("merchants")
-    .select("id, owner_id, business_name, status, created_at")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ merchants: data ?? [] });
+  return listResponse(
+    "merchants",
+    await guard.supabase
+      .from("merchants")
+      .select("id, owner_id, business_name, status, created_at")
+      .order("created_at", { ascending: false }),
+  );
 }
