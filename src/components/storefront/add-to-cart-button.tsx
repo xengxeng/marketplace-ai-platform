@@ -88,6 +88,7 @@ export function AddToCartButton({ productId, inStock }: { productId: string; inS
       <CustomerSelectionModal
         open={pickerOpen}
         dismissible
+        notice={message}
         onClose={() => setPickerOpen(false)}
         onSelect={handleSelect}
       />

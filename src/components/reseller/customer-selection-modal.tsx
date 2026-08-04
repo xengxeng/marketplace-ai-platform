@@ -17,11 +17,14 @@ type Tab = "search" | "create";
 export function CustomerSelectionModal({
   open,
   dismissible = true,
+  notice,
   onClose,
   onSelect,
 }: {
   open: boolean;
   dismissible?: boolean;
+  /** Caller-side failure (e.g. a refused add-to-cart) shown inside the modal, which would otherwise cover it. */
+  notice?: string;
   onClose: () => void;
   onSelect: (customer: Customer) => Promise<void> | void;
 }) {
@@ -206,7 +209,7 @@ export function CustomerSelectionModal({
           </div>
         )}
 
-        {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
+        {error || notice ? <p className="mt-4 text-sm text-red-300">{error || notice}</p> : null}
       </div>
     </div>
   );

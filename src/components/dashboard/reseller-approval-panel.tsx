@@ -81,10 +81,10 @@ export function ResellerApprovalPanel() {
         <span className="text-xs font-medium text-zinc-500">{resellers.length} total</span>
       </div>
 
+      {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
+
       {loading ? (
         <p className="mt-6 text-sm text-zinc-400">Loading resellers…</p>
-      ) : error ? (
-        <p className="mt-6 text-sm text-red-300">{error}</p>
       ) : resellers.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-400">No reseller applications yet.</p>
       ) : (
