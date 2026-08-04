@@ -35,8 +35,14 @@ function sellableCart() {
   };
 }
 
-function checkoutRequest(body: unknown = { shippingAddress: ADDRESS }) {
-  return jsonRequest(body, "http://localhost/api/checkout");
+function checkoutRequest(body: unknown = { shippingAddress: ADDRESS }, cookie?: string) {
+  const request = jsonRequest(body, "http://localhost/api/checkout");
+
+  if (cookie) {
+    request.headers.set("cookie", cookie);
+  }
+
+  return request;
 }
 
 describe("POST /api/checkout", () => {
@@ -120,6 +126,43 @@ describe("POST /api/checkout", () => {
       targetType: "order",
       targetId: "order-1",
     });
+  });
+
+  it("attributes the order to the reseller behind the referral cookie", async () => {
+    const mock = createSupabaseMock({
+      user: { id: "user-1" },
+      tables: {
+        ...sellableCart(),
+        reseller_referrals: [{ data: { profile_id: "reseller-1", status: "active" } }],
+      },
+      rpc: { place_order: { data: "order-1" } },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    await checkout(checkoutRequest(undefined, "other=1; foodify_ref=abcd-2345"));
+
+    expect(mock.argsFor("reseller_referrals", "eq")).toEqual(["referral_code", "ABCD2345"]);
+    expect(mock.rpc.mock.calls[0][1]).toMatchObject({ p_reseller_id: "reseller-1" });
+  });
+
+  it.each([
+    ["there is no cookie", undefined, undefined],
+    ["the code is malformed", "foodify_ref=nope!", undefined],
+    ["the code is unknown", "foodify_ref=ABCD2345", { data: null }],
+    ["the reseller is suspended", "foodify_ref=ABCD2345", { data: { profile_id: "r-1", status: "suspended" } }],
+    ["the shopper referred themselves", "foodify_ref=ABCD2345", { data: { profile_id: "user-1", status: "active" } }],
+  ])("places the order with no reseller when %s", async (_label, cookie, referral) => {
+    const mock = createSupabaseMock({
+      user: { id: "user-1" },
+      tables: { ...sellableCart(), reseller_referrals: referral ? [referral] : [] },
+      rpc: { place_order: { data: "order-1" } },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await checkout(checkoutRequest(undefined, cookie));
+
+    expect(response.status).toBe(200);
+    expect(mock.rpc.mock.calls[0][1]).toMatchObject({ p_reseller_id: null });
   });
 
   it("returns 400 with the rpc error message when the order cannot be placed", async () => {
