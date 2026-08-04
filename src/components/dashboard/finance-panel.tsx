@@ -37,20 +37,31 @@ export function FinancePanel() {
   const [error, setError] = useState("");
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
+  async function fetchFinanceData() {
+    const [commissionsRes, ledgerRes] = await Promise.all([fetch("/api/commissions"), fetch("/api/wallet-ledger")]);
+    const commissionsBody = await commissionsRes.json();
+    const ledgerBody = await ledgerRes.json();
+
+    if (!commissionsRes.ok) throw new Error(commissionsBody.error ?? "Unable to load commissions.");
+    if (!ledgerRes.ok) throw new Error(ledgerBody.error ?? "Unable to load wallet ledger.");
+
+    return {
+      commissions: (commissionsBody.commissions ?? []) as Commission[],
+      ledger: (ledgerBody.entries ?? []) as LedgerEntry[],
+    };
+  }
+
+  function applyFinanceData(data: { commissions: Commission[]; ledger: LedgerEntry[] }) {
+    setCommissions(data.commissions);
+    setLedger(data.ledger);
+    setError("");
+  }
+
   async function load() {
     setLoading(true);
-    setError("");
 
     try {
-      const [commissionsRes, ledgerRes] = await Promise.all([fetch("/api/commissions"), fetch("/api/wallet-ledger")]);
-      const commissionsBody = await commissionsRes.json();
-      const ledgerBody = await ledgerRes.json();
-
-      if (!commissionsRes.ok) throw new Error(commissionsBody.error ?? "Unable to load commissions.");
-      if (!ledgerRes.ok) throw new Error(ledgerBody.error ?? "Unable to load wallet ledger.");
-
-      setCommissions(commissionsBody.commissions ?? []);
-      setLedger(ledgerBody.entries ?? []);
+      applyFinanceData(await fetchFinanceData());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load finance data.");
     } finally {
@@ -59,7 +70,10 @@ export function FinancePanel() {
   }
 
   useEffect(() => {
-    load();
+    fetchFinanceData()
+      .then(applyFinanceData)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Unable to load finance data."))
+      .finally(() => setLoading(false));
   }, []);
 
   async function approve(id: string) {

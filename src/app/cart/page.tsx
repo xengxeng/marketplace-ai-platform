@@ -24,20 +24,28 @@ export default function CartPage() {
   const [error, setError] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
 
+  async function fetchCart() {
+    const res = await fetch("/api/cart");
+    const body = await res.json();
+
+    if (!res.ok) {
+      throw new Error(body.error ?? "Unable to load cart.");
+    }
+
+    return body as { items?: CartItem[]; totalCents?: number };
+  }
+
+  function applyCart(body: { items?: CartItem[]; totalCents?: number }) {
+    setItems(body.items ?? []);
+    setTotalCents(body.totalCents ?? 0);
+    setError("");
+  }
+
   async function loadCart() {
     setLoading(true);
-    setError("");
 
     try {
-      const res = await fetch("/api/cart");
-      const body = await res.json();
-
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load cart.");
-      }
-
-      setItems(body.items ?? []);
-      setTotalCents(body.totalCents ?? 0);
+      applyCart(await fetchCart());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load cart.");
     } finally {
@@ -46,7 +54,10 @@ export default function CartPage() {
   }
 
   useEffect(() => {
-    loadCart();
+    fetchCart()
+      .then(applyCart)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Unable to load cart."))
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleRemove(itemId: string) {
