@@ -191,7 +191,13 @@ describe("PATCH /api/orders/[id]/status", () => {
     });
     createServerSupabaseClient.mockResolvedValue(mock.client);
 
-    expect(await (await patchOrder(jsonRequest({ status: "paid" }), routeParams(orderId))).json()).toEqual({ ok: true });
+    expect(await (await patchOrder(jsonRequest({ status: "paid" }), routeParams(orderId))).json()).toEqual({
+      ok: true,
+      status: "paid",
+    });
+    expect(mock.argsFor("order_status_history", "insert")).toEqual([
+      { order_id: orderId, from_status: "pending", to_status: "paid", changed_by: "admin-1" },
+    ]);
     expect(mock.rpc).not.toHaveBeenCalled();
     expect(logActivity).toHaveBeenCalledWith(
       mock.client,
@@ -199,21 +205,69 @@ describe("PATCH /api/orders/[id]/status", () => {
     );
   });
 
-  it("notifies the customer with a short order reference on fulfilment", async () => {
+  it("notifies the customer with a short order reference on delivery", async () => {
     getSessionProfile.mockResolvedValue({ user: { id: "admin-1" }, role: "admin" });
     const mock = createSupabaseMock({
-      tables: { orders: [{ data: { status: "paid", customer_id: "c-1" } }, { data: null }] },
+      tables: { orders: [{ data: { status: "shipped", customer_id: "c-1" } }, { data: null }] },
     });
     createServerSupabaseClient.mockResolvedValue(mock.client);
 
-    await patchOrder(jsonRequest({ status: "fulfilled" }), routeParams(orderId));
+    await patchOrder(jsonRequest({ status: "delivered" }), routeParams(orderId));
 
     expect(notifyArgs(mock)).toMatchObject({
       p_recipient_id: "c-1",
-      p_title: "Order fulfilled",
+      p_title: "Order delivered",
       p_link: `/orders/${orderId}`,
     });
     expect(notifyArgs(mock)?.p_body).toContain("01234567");
+  });
+
+  it.each([
+    ["pending", "confirmed", "Order confirmed"],
+    ["confirmed", "processing", "Order being prepared"],
+    ["processing", "shipped", "Order shipped"],
+  ])("walks %s -> %s and notifies with %s", async (from, to, title) => {
+    getSessionProfile.mockResolvedValue({ user: { id: "admin-1" }, role: "admin" });
+    const mock = createSupabaseMock({
+      tables: { orders: [{ data: { status: from, customer_id: "c-1" } }, { data: null }] },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await patchOrder(jsonRequest({ status: to }), routeParams(orderId));
+
+    expect(response.status).toBe(200);
+    expect(notifyArgs(mock)?.p_title).toBe(title);
+  });
+
+  it.each([
+    ["pending", "shipped"],
+    ["paid", "delivered"],
+    ["shipped", "cancelled"],
+    ["processing", "paid"],
+  ])("returns 409 for the illegal %s -> %s jump", async (from, to) => {
+    getSessionProfile.mockResolvedValue({ user: { id: "admin-1" }, role: "admin" });
+    const mock = createSupabaseMock({
+      tables: { orders: [{ data: { status: from, customer_id: "c-1" } }, { data: null }] },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await patchOrder(jsonRequest({ status: to }), routeParams(orderId));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain(`from ${from} to ${to}`);
+    expect(mock.argsFor("orders", "update", 1)).toBeUndefined();
+    expect(mock.tableCall("order_status_history")).toBeUndefined();
+  });
+
+  it("rejects a non-JSON body", async () => {
+    getSessionProfile.mockResolvedValue({ user: { id: "admin-1" }, role: "admin" });
+
+    const response = await patchOrder(
+      new Request("http://localhost/api/orders/x/status", { method: "PATCH", body: "{" }),
+      routeParams(orderId),
+    );
+
+    expect(response.status).toBe(400);
   });
 
   it("notifies with cancellation copy when cancelling", async () => {

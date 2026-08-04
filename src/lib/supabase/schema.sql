@@ -35,7 +35,7 @@ create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references public.profiles(id) on delete cascade,
   reseller_id uuid references public.profiles(id),
-  status text not null default 'pending' check (status in ('pending','paid','fulfilled','cancelled')),
+  status text not null default 'pending' check (status in ('pending','paid','confirmed','processing','shipped','delivered','fulfilled','cancelled')),
   total_cents bigint not null default 0,
   created_at timestamptz not null default now()
 );
@@ -361,6 +361,40 @@ create policy "uploads_public_read" on storage.objects for select using (bucket_
 drop policy if exists "uploads_authenticated_insert" on storage.objects;
 create policy "uploads_authenticated_insert" on storage.objects for insert with check (
   bucket_id = 'uploads' and auth.role() = 'authenticated'
+);
+
+-- Order status history: append-only audit trail of every transition.
+-- Written by the admin status route; readable by the order's participants and staff.
+
+create table if not exists public.order_status_history (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  from_status text,
+  to_status text not null,
+  changed_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists order_status_history_order_created_idx
+  on public.order_status_history (order_id, created_at);
+
+alter table public.order_status_history enable row level security;
+
+drop policy if exists "order_status_history_select_participant" on public.order_status_history;
+create policy "order_status_history_select_participant" on public.order_status_history for select using (
+  order_id in (select id from public.orders where customer_id = auth.uid() or reseller_id = auth.uid())
+);
+
+drop policy if exists "order_status_history_select_staff" on public.order_status_history;
+create policy "order_status_history_select_staff" on public.order_status_history for select using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin', 'finance_admin'))
+);
+
+-- Only the acting admin may append, and only as themselves.
+drop policy if exists "order_status_history_insert_admin" on public.order_status_history;
+create policy "order_status_history_insert_admin" on public.order_status_history for insert with check (
+  changed_by = auth.uid()
+  and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role in ('admin', 'super_admin'))
 );
 
 -- Notifications
