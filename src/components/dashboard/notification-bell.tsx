@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell } from "lucide-react";
+import { responseError } from "@/lib/http/response-error";
 
 type Notification = {
   id: string;
@@ -14,27 +15,51 @@ type Notification = {
   created_at: string;
 };
 
+type LoadResult = { notifications: Notification[] | null; error: string };
+
+async function fetchNotifications(): Promise<LoadResult> {
+  try {
+    const res = await fetch("/api/notifications");
+    if (!res.ok) {
+      throw await responseError(res, "Unable to load notifications.");
+    }
+    const body = await res.json();
+    return { notifications: body.notifications ?? [], error: "" };
+  } catch (err) {
+    return { notifications: null, error: err instanceof Error ? err.message : "Unable to load notifications." };
+  }
+}
+
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  async function load() {
-    try {
-      const res = await fetch("/api/notifications");
-      if (!res.ok) return;
-      const body = await res.json();
-      setNotifications(body.notifications ?? []);
-    } finally {
-      setLoaded(true);
-    }
-  }
-
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+
+    function refresh() {
+      void fetchNotifications().then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.notifications) {
+          setNotifications(result.notifications);
+        }
+        setError(result.error);
+        setLoaded(true);
+      });
+    }
+
+    refresh();
+    const interval = setInterval(refresh, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -48,8 +73,20 @@ export function NotificationBell() {
   }, []);
 
   async function markRead(id: string) {
+    const previous = notifications;
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)));
-    await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+
+    try {
+      const res = await fetch(`/api/notifications/${id}/read`, { method: "PATCH" });
+      if (!res.ok) {
+        throw await responseError(res, "Unable to mark the notification as read.");
+      }
+    } catch (err) {
+      // Roll back the optimistic update so the badge keeps reflecting the
+      // server state instead of hiding a notification that is still unread.
+      setNotifications(previous);
+      setError(err instanceof Error ? err.message : "Unable to mark the notification as read.");
+    }
   }
 
   const unreadCount = notifications.filter((n) => !n.read_at).length;
@@ -80,6 +117,7 @@ export function NotificationBell() {
           >
             <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">Notifications</div>
             <div className="max-h-80 overflow-y-auto">
+              {error ? <p className="px-3 py-2 text-sm text-red-300">{error}</p> : null}
               {!loaded ? (
                 <p className="px-3 py-4 text-sm text-zinc-500">Loading…</p>
               ) : notifications.length === 0 ? (
@@ -99,7 +137,14 @@ export function NotificationBell() {
                   );
 
                   return (
-                    <div key={notification.id} onClick={() => !notification.read_at && markRead(notification.id)}>
+                    <div
+                      key={notification.id}
+                      onClick={() => {
+                        if (!notification.read_at) {
+                          void markRead(notification.id);
+                        }
+                      }}
+                    >
                       {notification.link ? (
                         <Link href={notification.link} onClick={() => setOpen(false)}>
                           {content}

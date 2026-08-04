@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 export function AddToCartButton({ productId, inStock }: { productId: string; inStock: boolean }) {
   const router = useRouter();
@@ -19,14 +20,12 @@ export function AddToCartButton({ productId, inStock }: { productId: string; inS
         body: JSON.stringify({ productId, quantity: 1 }),
       });
 
-      const body = await res.json();
-
       if (!res.ok) {
         if (res.status === 401) {
           router.push("/auth");
           return;
         }
-        throw new Error(body.error ?? "Unable to add to cart.");
+        throw await responseError(res, "Unable to add to cart.");
       }
 
       setState("added");

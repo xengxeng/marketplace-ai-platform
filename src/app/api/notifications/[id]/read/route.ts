@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { withErrorHandling } from "@/lib/api/handler";
+import { logError } from "@/lib/observability/log";
 
-export async function PATCH(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+const SCOPE = "api/notifications/[id]/read";
+
+export const PATCH = withErrorHandling(SCOPE, async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
 
   const supabase = await createServerSupabaseClient();
@@ -17,8 +21,9 @@ export async function PATCH(_request: Request, { params }: { params: Promise<{ i
   const { error } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id);
 
   if (error) {
+    logError(SCOPE, error, { notificationId: id, step: "mark_read" });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
-}
+});

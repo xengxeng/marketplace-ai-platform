@@ -1,5 +1,8 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { DashboardOverviewClient, type ActivityEntry, type Metric } from "@/components/dashboard/dashboard-overview-client";
+import { logError } from "@/lib/observability/log";
+
+const SCOPE = "dashboard/overview";
 
 function formatPeso(cents: number) {
   return `₱${(cents / 100).toLocaleString("en-PH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -27,20 +30,38 @@ export default async function DashboardPage() {
   ];
   let activity: ActivityEntry[] = [];
   let greetingName = "there";
+  let dataError: string | null = null;
 
   if (supabase) {
     const { data: userData } = await supabase.auth.getUser();
 
     if (userData.user) {
-      const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", userData.user.id).maybeSingle();
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        logError(SCOPE, profileError, { step: "fetch_profile", userId: userData.user.id });
+      }
+
       const hasRealName = profile?.full_name && !profile.full_name.includes("@");
       greetingName = (hasRealName ? profile!.full_name!.split(" ")[0] : profile?.email?.split("@")[0]) || "there";
     }
 
-    const [{ data: orders }, { data: merchants }] = await Promise.all([
+    const [{ data: orders, error: ordersError }, { data: merchants, error: merchantsError }] = await Promise.all([
       supabase.from("orders").select("id, status, total_cents, created_at").order("created_at", { ascending: false }),
       supabase.from("merchants").select("id, status"),
     ]);
+
+    // Rendering ₱0 / 0 for a failed query presents an outage as real business
+    // data, so the failure is reported alongside whatever did load.
+    const queryError = ordersError ?? merchantsError;
+    if (queryError) {
+      logError(SCOPE, queryError, { step: ordersError ? "fetch_orders" : "fetch_merchants" });
+      dataError = queryError.message;
+    }
 
     const allOrders = orders ?? [];
     const totalRevenueCents = allOrders.reduce((sum, order) => sum + (order.total_cents ?? 0), 0);
@@ -89,5 +110,5 @@ export default async function DashboardPage() {
     }));
   }
 
-  return <DashboardOverviewClient greetingName={greetingName} metrics={metrics} activity={activity} />;
+  return <DashboardOverviewClient greetingName={greetingName} metrics={metrics} activity={activity} dataError={dataError} />;
 }

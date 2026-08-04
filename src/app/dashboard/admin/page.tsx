@@ -1,27 +1,38 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
 import { AdminOrdersPanel } from "@/components/dashboard/admin-orders-panel";
+import { DataLoadError } from "@/components/dashboard/data-load-error";
 import { MerchantApprovalPanel } from "@/components/dashboard/merchant-approval-panel";
 import { ActivityLogPanel } from "@/components/dashboard/activity-log-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { logError } from "@/lib/observability/log";
 
+const SCOPE = "dashboard/admin";
 const ALLOWED_ROLES = ["admin", "super_admin"];
 
 export default async function AdminDashboardPage() {
-  const { role } = await getSessionProfile();
+  const { role, error: sessionError } = await getSessionProfile();
+
+  if (sessionError) {
+    return <DataLoadError title="We couldn't check your access" message={sessionError} />;
+  }
 
   if (!ALLOWED_ROLES.includes(role ?? "")) {
     return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;
   }
 
   const supabase = await createServerSupabaseClient();
-  const { data: logs } = supabase
+  const { data: logs, error: logsError } = supabase
     ? await supabase
         .from("activity_logs")
         .select("id, action, target_type, target_id, metadata, created_at")
         .order("created_at", { ascending: false })
         .limit(20)
-    : { data: [] };
+    : { data: [], error: null };
+
+  if (logsError) {
+    logError(SCOPE, logsError, { step: "fetch_activity_logs" });
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -35,7 +46,7 @@ export default async function AdminDashboardPage() {
 
       <AdminOrdersPanel />
       <MerchantApprovalPanel />
-      <ActivityLogPanel logs={logs ?? []} />
+      <ActivityLogPanel logs={logs ?? []} error={logsError?.message ?? null} />
     </div>
   );
 }

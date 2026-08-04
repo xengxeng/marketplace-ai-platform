@@ -35,10 +35,12 @@ export function DashboardOverviewClient({
   greetingName,
   metrics,
   activity,
+  dataError,
 }: {
   greetingName: string;
   metrics: Metric[];
   activity: ActivityEntry[];
+  dataError?: string | null;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -62,6 +64,12 @@ export function DashboardOverviewClient({
           Browse products
         </Link>
       </motion.div>
+
+      {dataError ? (
+        <p className="rounded-2xl border border-red-400/30 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+          Some figures below may be out of date — loading marketplace data failed: {dataError}
+        </p>
+      ) : null}
 
       <motion.div initial="hidden" animate="show" variants={container} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => {

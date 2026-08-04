@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 export function MerchantApplyForm() {
   const router = useRouter();
@@ -20,10 +21,8 @@ export function MerchantApplyForm() {
         body: JSON.stringify({ businessName }),
       });
 
-      const body = await res.json();
-
       if (!res.ok) {
-        throw new Error(body.error ?? "Unable to submit application.");
+        throw await responseError(res, "Unable to submit application.");
       }
 
       router.refresh();

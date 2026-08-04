@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { logError } from "@/lib/observability/log";
+import { withErrorHandling } from "@/lib/api/handler";
+
+const SCOPE = "api/cart";
 
 type ProductJoin = { name: string; price_cents: number; stock_int: number };
 
-export async function GET() {
+export const GET = withErrorHandling(SCOPE, async () => {
   const supabase = await createServerSupabaseClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
@@ -14,12 +18,19 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const { data: cart } = await supabase
+  const { data: cart, error: cartError } = await supabase
     .from("carts")
     .select("id")
     .eq("customer_id", userData.user.id)
     .eq("status", "active")
     .maybeSingle();
+
+  // Without this check a lookup failure is indistinguishable from "no cart",
+  // so the shopper would be shown an empty cart instead of an error.
+  if (cartError) {
+    logError(SCOPE, cartError, { userId: userData.user.id, step: "fetch_cart" });
+    return NextResponse.json({ error: cartError.message }, { status: 500 });
+  }
 
   if (!cart) {
     return NextResponse.json({ cartId: null, items: [], totalCents: 0 });
@@ -32,6 +43,7 @@ export async function GET() {
     .order("created_at", { ascending: true });
 
   if (error) {
+    logError(SCOPE, error, { cartId: cart.id, step: "fetch_items" });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -52,4 +64,4 @@ export async function GET() {
   const totalCents = normalized.reduce((sum, item) => sum + item.subtotalCents, 0);
 
   return NextResponse.json({ cartId: cart.id, items: normalized, totalCents });
-}
+});
