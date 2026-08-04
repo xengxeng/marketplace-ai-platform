@@ -7,7 +7,7 @@ vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient }));
 
 const { GET } = await import("@/app/api/cart/route");
 const { POST } = await import("@/app/api/cart/items/route");
-const { DELETE } = await import("@/app/api/cart/items/[id]/route");
+const { DELETE, PATCH } = await import("@/app/api/cart/items/[id]/route");
 
 beforeEach(() => {
   createServerSupabaseClient.mockReset();
@@ -209,6 +209,131 @@ describe("POST /api/cart/items", () => {
       }).client,
     );
     expect((await (await POST(jsonRequest({ productId: "p" }))).json()).error).toBe("insert");
+  });
+});
+
+describe("PATCH /api/cart/items/[id]", () => {
+  function patchRequest(body: unknown) {
+    return new Request("http://localhost/api/cart/items/item-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Caller owns item-1, which points at a product with 5 in stock. */
+  function ownedItem(stock = 5) {
+    return {
+      carts: [{ data: { id: "cart-1" } }],
+      cart_items: [{ data: { id: "item-1", quantity: 1, product_id: "p-1", cart_id: "cart-1" } }, { data: null }],
+      products: [{ data: { stock_int: stock, status: "active" } }],
+    };
+  }
+
+  it("rejects a non-JSON body", async () => {
+    const response = await PATCH(
+      new Request("http://localhost", { method: "PATCH", body: "{" }),
+      routeParams("item-1"),
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it.each([[0], [-3], [1.5], ["2"], [null]])("rejects the quantity %p", async (quantity) => {
+    const response = await PATCH(patchRequest({ quantity }), routeParams("item-1"));
+
+    expect(response.status).toBe(400);
+    expect(createServerSupabaseClient).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when Supabase is not configured", async () => {
+    createServerSupabaseClient.mockResolvedValue(null);
+
+    expect((await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"))).status).toBe(500);
+  });
+
+  it("returns 401 when not signed in", async () => {
+    createServerSupabaseClient.mockResolvedValue(createSupabaseMock({ userError: { message: "no session" } }).client);
+
+    expect((await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"))).status).toBe(401);
+  });
+
+  it("returns 404 when the caller has no active cart", async () => {
+    createServerSupabaseClient.mockResolvedValue(
+      createSupabaseMock({ user: { id: "user-1" }, tables: { carts: [{ data: null }] } }).client,
+    );
+
+    expect((await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"))).status).toBe(404);
+  });
+
+  it("returns 404 for an item that belongs to someone else's cart", async () => {
+    const mock = createSupabaseMock({
+      user: { id: "user-1" },
+      tables: { carts: [{ data: { id: "cart-1" } }], cart_items: [{ data: null }] },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"));
+
+    expect(response.status).toBe(404);
+    // Scoped to the caller's own cart, so it can never resolve another customer's row.
+    expect(mock.argsFor("cart_items", "eq", 0)).toEqual(["id", "item-1"]);
+    expect(mock.tableCall("cart_items")?.operations.filter((op) => op.method === "eq")[1]?.args).toEqual([
+      "cart_id",
+      "cart-1",
+    ]);
+  });
+
+  it("returns 409 when the product no longer exists", async () => {
+    createServerSupabaseClient.mockResolvedValue(
+      createSupabaseMock({
+        user: { id: "user-1" },
+        tables: { ...ownedItem(), products: [{ data: null }] },
+      }).client,
+    );
+
+    expect((await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"))).status).toBe(409);
+  });
+
+  it("returns 409 when the quantity exceeds stock", async () => {
+    const mock = createSupabaseMock({ user: { id: "user-1" }, tables: ownedItem(3) });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await PATCH(patchRequest({ quantity: 4 }), routeParams("item-1"));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe("Only 3 left in stock");
+    expect(mock.argsFor("cart_items", "update", 1)).toBeUndefined();
+  });
+
+  it("updates the quantity up to the available stock", async () => {
+    const mock = createSupabaseMock({ user: { id: "user-1" }, tables: ownedItem(3) });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const response = await PATCH(patchRequest({ quantity: 3 }), routeParams("item-1"));
+
+    expect(await response.json()).toEqual({ ok: true, quantity: 3 });
+    expect(mock.argsFor("cart_items", "update", 1)?.[0]).toMatchObject({ quantity: 3 });
+  });
+
+  it("surfaces update errors as 500", async () => {
+    createServerSupabaseClient.mockResolvedValue(
+      createSupabaseMock({
+        user: { id: "user-1" },
+        tables: {
+          ...ownedItem(),
+          cart_items: [
+            { data: { id: "item-1", quantity: 1, product_id: "p-1", cart_id: "cart-1" } },
+            { error: { message: "write failed" } },
+          ],
+        },
+      }).client,
+    );
+
+    const response = await PATCH(patchRequest({ quantity: 2 }), routeParams("item-1"));
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toBe("write failed");
   });
 });
 

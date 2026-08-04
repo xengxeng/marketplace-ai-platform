@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createSupabaseMock, routeParams } from "../helpers/supabase-mock";
+import { createSupabaseMock, jsonRequest, routeParams } from "../helpers/supabase-mock";
 
 const createServerSupabaseClient = vi.fn();
 const getSessionProfile = vi.fn();
@@ -18,27 +18,102 @@ beforeEach(() => {
   logActivity.mockReset();
 });
 
+const ADDRESS = {
+  recipient: "Xeng Cruz",
+  phone: "+63 917 555 1234",
+  line1: "12 Mabini Street",
+  city: "Quezon City",
+  province: "Metro Manila",
+  postalCode: "1100",
+};
+
+/** An active cart holding one sellable line from a verified merchant. */
+function sellableCart() {
+  return {
+    carts: [{ data: { id: "cart-1" } }],
+    cart_items: [{ data: [{ quantity: 1, products: { name: "Adobo", status: "active", merchants: { status: "verified" } } }] }],
+  };
+}
+
+function checkoutRequest(body: unknown = { shippingAddress: ADDRESS }) {
+  return jsonRequest(body, "http://localhost/api/checkout");
+}
+
 describe("POST /api/checkout", () => {
+  it.each([
+    ["a missing address", {}],
+    ["a short recipient", { shippingAddress: { ...ADDRESS, recipient: "X" } }],
+    ["a bad phone number", { shippingAddress: { ...ADDRESS, phone: "not-a-phone" } }],
+    ["a non-4-digit postal code", { shippingAddress: { ...ADDRESS, postalCode: "110" } }],
+    ["a missing city", { shippingAddress: { ...ADDRESS, city: "" } }],
+  ])("rejects %s before touching the database", async (_label, body) => {
+    const response = await checkout(checkoutRequest(body));
+
+    expect(response.status).toBe(400);
+    expect(createServerSupabaseClient).not.toHaveBeenCalled();
+  });
+
   it("returns 500 when Supabase is not configured", async () => {
     createServerSupabaseClient.mockResolvedValue(null);
 
-    expect((await checkout()).status).toBe(500);
+    expect((await checkout(checkoutRequest())).status).toBe(500);
   });
 
   it("returns 401 when not signed in", async () => {
     createServerSupabaseClient.mockResolvedValue(createSupabaseMock({ user: null }).client);
 
-    expect((await checkout()).status).toBe(401);
+    expect((await checkout(checkoutRequest())).status).toBe(401);
   });
 
-  it("places the order via the place_order rpc and logs the activity", async () => {
-    const mock = createSupabaseMock({ user: { id: "user-1" }, rpc: { place_order: { data: "order-1" } } });
+  it("returns 400 when there is no active cart", async () => {
+    createServerSupabaseClient.mockResolvedValue(
+      createSupabaseMock({ user: { id: "user-1" }, tables: { carts: [{ data: null }] } }).client,
+    );
+
+    const response = await checkout(checkoutRequest());
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("empty");
+  });
+
+  it.each([
+    ["the merchant is suspended", { name: "Adobo", status: "active", merchants: { status: "suspended" } }],
+    ["the product is archived", { name: "Adobo", status: "archived", merchants: { status: "verified" } }],
+    ["the product row is gone", null],
+  ])("returns 409 when %s", async (_label, products) => {
+    const mock = createSupabaseMock({
+      user: { id: "user-1" },
+      tables: {
+        carts: [{ data: { id: "cart-1" } }],
+        cart_items: [{ data: [{ quantity: 1, products }] }],
+      },
+      rpc: { place_order: { data: "order-1" } },
+    });
     createServerSupabaseClient.mockResolvedValue(mock.client);
 
-    const body = await (await checkout()).json();
+    const response = await checkout(checkoutRequest());
+
+    expect(response.status).toBe(409);
+    expect(mock.rpc).not.toHaveBeenCalled();
+  });
+
+  it("places the order with the flattened address and logs the activity", async () => {
+    const mock = createSupabaseMock({
+      user: { id: "user-1" },
+      tables: sellableCart(),
+      rpc: { place_order: { data: "order-1" } },
+    });
+    createServerSupabaseClient.mockResolvedValue(mock.client);
+
+    const body = await (await checkout(checkoutRequest())).json();
 
     expect(body).toEqual({ orderId: "order-1" });
-    expect(mock.rpc).toHaveBeenCalledWith("place_order", { p_customer_id: "user-1", p_reseller_id: null });
+    expect(mock.rpc).toHaveBeenCalledWith("place_order", {
+      p_customer_id: "user-1",
+      p_reseller_id: null,
+      p_shipping_address:
+        "Xeng Cruz | +63 917 555 1234 | 12 Mabini Street | Quezon City, Metro Manila 1100",
+    });
     expect(logActivity).toHaveBeenCalledWith(mock.client, {
       actorId: "user-1",
       action: "order_placed",
@@ -49,11 +124,14 @@ describe("POST /api/checkout", () => {
 
   it("returns 400 with the rpc error message when the order cannot be placed", async () => {
     createServerSupabaseClient.mockResolvedValue(
-      createSupabaseMock({ user: { id: "user-1" }, rpc: { place_order: { error: { message: "out of stock" } } } })
-        .client,
+      createSupabaseMock({
+        user: { id: "user-1" },
+        tables: sellableCart(),
+        rpc: { place_order: { error: { message: "out of stock" } } },
+      }).client,
     );
 
-    const response = await checkout();
+    const response = await checkout(checkoutRequest());
 
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe("out of stock");
