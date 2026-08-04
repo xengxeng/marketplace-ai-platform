@@ -22,19 +22,27 @@ export function MerchantApprovalPanel() {
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  async function fetchMerchants() {
+    const res = await fetch("/api/merchants");
+    const body = await res.json();
+
+    if (!res.ok) {
+      throw new Error(body.error ?? "Unable to load merchants.");
+    }
+
+    return (body.merchants ?? []) as Merchant[];
+  }
+
+  function applyMerchants(rows: Merchant[]) {
+    setMerchants(rows);
+    setError("");
+  }
+
   async function load() {
     setLoading(true);
-    setError("");
 
     try {
-      const res = await fetch("/api/merchants");
-      const body = await res.json();
-
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load merchants.");
-      }
-
-      setMerchants(body.merchants ?? []);
+      applyMerchants(await fetchMerchants());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load merchants.");
     } finally {
@@ -43,7 +51,10 @@ export function MerchantApprovalPanel() {
   }
 
   useEffect(() => {
-    load();
+    fetchMerchants()
+      .then(applyMerchants)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Unable to load merchants."))
+      .finally(() => setLoading(false));
   }, []);
 
   async function updateStatus(id: string, status: string) {

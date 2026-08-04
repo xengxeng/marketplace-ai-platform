@@ -28,19 +28,27 @@ export function AdminOrdersPanel() {
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  async function fetchOrders() {
+    const res = await fetch("/api/orders");
+    const body = await res.json();
+
+    if (!res.ok) {
+      throw new Error(body.error ?? "Unable to load orders.");
+    }
+
+    return (body.orders ?? []) as Order[];
+  }
+
+  function applyOrders(rows: Order[]) {
+    setOrders(rows);
+    setError("");
+  }
+
   async function loadOrders() {
     setLoading(true);
-    setError("");
 
     try {
-      const res = await fetch("/api/orders");
-      const body = await res.json();
-
-      if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load orders.");
-      }
-
-      setOrders(body.orders ?? []);
+      applyOrders(await fetchOrders());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load orders.");
     } finally {
@@ -49,7 +57,10 @@ export function AdminOrdersPanel() {
   }
 
   useEffect(() => {
-    loadOrders();
+    fetchOrders()
+      .then(applyOrders)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Unable to load orders."))
+      .finally(() => setLoading(false));
   }, []);
 
   async function updateStatus(orderId: string, status: string) {
