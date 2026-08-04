@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ORDER_TRANSITIONS, type OrderStatus, isOrderStatus } from "@/lib/orders/status";
+
+type HistoryEntry = {
+  id: string;
+  from_status: string | null;
+  to_status: string;
+  created_at: string;
+};
 
 type Order = {
   id: string;
@@ -18,15 +26,37 @@ function formatPeso(cents: number) {
 const STATUS_TONE: Record<string, string> = {
   pending: "border-amber-400/30 bg-amber-500/10 text-amber-300",
   paid: "border-sky-400/30 bg-sky-500/10 text-sky-300",
+  confirmed: "border-sky-400/30 bg-sky-500/10 text-sky-300",
+  processing: "border-indigo-400/30 bg-indigo-500/10 text-indigo-300",
+  shipped: "border-violet-400/30 bg-violet-500/10 text-violet-300",
+  delivered: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   fulfilled: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   cancelled: "border-red-400/30 bg-red-500/10 text-red-300",
 };
+
+const ACTION_LABEL: Record<OrderStatus, string> = {
+  pending: "Reopen",
+  paid: "Mark paid",
+  confirmed: "Confirm",
+  processing: "Start preparing",
+  shipped: "Mark shipped",
+  delivered: "Mark delivered",
+  fulfilled: "Mark fulfilled",
+  cancelled: "Cancel",
+};
+
+/** The status chain drives the buttons, so UI and API can't disagree on what's legal. */
+function nextStatuses(status: string): OrderStatus[] {
+  return isOrderStatus(status) ? ORDER_TRANSITIONS[status] : [];
+}
 
 export function AdminOrdersPanel() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   async function fetchOrders() {
     const res = await fetch("/api/orders");
@@ -63,6 +93,29 @@ export function AdminOrdersPanel() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function toggleHistory(orderId: string) {
+    if (historyId === orderId) {
+      setHistoryId(null);
+      return;
+    }
+
+    setHistoryId(orderId);
+    setHistory([]);
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}/history`);
+      const body = await res.json();
+
+      if (!res.ok) {
+        throw new Error(body.error ?? "Unable to load status history.");
+      }
+
+      setHistory((body.history ?? []) as HistoryEntry[]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load status history.");
+    }
+  }
+
   async function updateStatus(orderId: string, status: string) {
     setUpdatingId(orderId);
 
@@ -79,6 +132,10 @@ export function AdminOrdersPanel() {
       }
 
       await loadOrders();
+
+      if (historyId === orderId) {
+        setHistoryId(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update order.");
     } finally {
@@ -105,10 +162,8 @@ export function AdminOrdersPanel() {
       ) : (
         <div className="mt-6 space-y-3">
           {orders.map((order) => (
-            <div
-              key={order.id}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-4"
-            >
+            <div key={order.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="font-medium text-white">Order {order.id.slice(0, 8)}</p>
                 <p className="mt-1 text-sm text-zinc-400">
@@ -121,25 +176,48 @@ export function AdminOrdersPanel() {
                   {order.status}
                 </span>
 
-                {["pending", "paid"].includes(order.status) ? (
-                  <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {nextStatuses(order.status).map((next) => (
                     <button
-                      onClick={() => updateStatus(order.id, "fulfilled")}
+                      key={next}
+                      onClick={() => updateStatus(order.id, next)}
                       disabled={updatingId === order.id}
-                      className="rounded-full border border-emerald-400/30 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        next === "cancelled"
+                          ? "border-red-400/30 text-red-300 hover:bg-red-500/10"
+                          : "border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/10"
+                      }`}
                     >
-                      Mark fulfilled
+                      {ACTION_LABEL[next]}
                     </button>
-                    <button
-                      onClick={() => updateStatus(order.id, "cancelled")}
-                      disabled={updatingId === order.id}
-                      className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : null}
+                  ))}
+                  <button
+                    onClick={() => toggleHistory(order.id)}
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/10"
+                  >
+                    {historyId === order.id ? "Hide history" : "History"}
+                  </button>
+                </div>
               </div>
+              </div>
+
+              {historyId === order.id ? (
+                <ol className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs text-zinc-400">
+                  {history.length === 0 ? (
+                    <li>No recorded transitions yet.</li>
+                  ) : (
+                    history.map((entry) => (
+                      <li key={entry.id}>
+                        <span className="capitalize text-zinc-200">{entry.from_status ?? "created"}</span>
+                        {" → "}
+                        <span className="capitalize text-zinc-200">{entry.to_status}</span>
+                        {" · "}
+                        {new Date(entry.created_at).toLocaleString("en-PH")}
+                      </li>
+                    ))
+                  )}
+                </ol>
+              ) : null}
             </div>
           ))}
         </div>
