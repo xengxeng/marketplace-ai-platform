@@ -9,6 +9,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Business name is required" }, { status: 400 });
   }
 
+  if (businessName.trim().length > 120) {
+    return NextResponse.json({ error: "Business name is too long" }, { status: 400 });
+  }
+
   const supabase = await createServerSupabaseClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
@@ -35,7 +39,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error?.message ?? "Unable to create merchant application" }, { status: 500 });
   }
 
-  await supabase.from("profiles").update({ role: "merchant" }).eq("id", userData.user.id);
+  // Only promote a plain guest: applying must never downgrade an elevated role.
+  await supabase.from("profiles").update({ role: "merchant" }).eq("id", userData.user.id).eq("role", "guest");
 
   await logActivity(supabase, {
     actorId: userData.user.id,

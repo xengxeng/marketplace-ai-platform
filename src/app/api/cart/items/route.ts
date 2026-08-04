@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request) {
   try {
     const { productId, quantity } = await request.json();
-    const qty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+    const qty = Number.isFinite(quantity) && quantity > 0 ? Math.min(Math.floor(quantity), 1000) : 1;
 
-    if (!productId) {
-      return NextResponse.json({ error: "Missing productId" }, { status: 400 });
+    if (typeof productId !== "string" || !UUID_PATTERN.test(productId)) {
+      return NextResponse.json({ error: "Invalid productId" }, { status: 400 });
     }
 
     const supabase = await createServerSupabaseClient();

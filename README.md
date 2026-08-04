@@ -9,8 +9,8 @@ Set the following values in Vercel and your local environment:
 - NEXT_PUBLIC_SUPABASE_URL
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
 - SUPABASE_SERVICE_ROLE_KEY
-- SUPER_ADMIN_EMAIL (optional; defaults to `xengco09@gmail.com`) — the email
-  that receives the `super_admin` role on sign-in.
+- SUPER_ADMIN_EMAIL — the email that receives the `super_admin` role on
+  sign-in. There is no default: if it is unset, no account is auto-promoted.
 
 ## Deployment notes
 

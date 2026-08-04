@@ -14,7 +14,11 @@ export async function PATCH(_request: Request, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  const { error } = await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id);
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("recipient_id", userData.user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

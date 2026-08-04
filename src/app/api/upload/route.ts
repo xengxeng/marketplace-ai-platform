@@ -31,7 +31,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "File exceeds 5MB limit" }, { status: 400 });
     }
 
-    const extension = file.name.split(".").pop() ?? "bin";
+    const rawExtension = file.name.split(".").pop() ?? "";
+    const extension = /^[a-zA-Z0-9]{1,10}$/.test(rawExtension) ? rawExtension.toLowerCase() : "bin";
     const path = `${userData.user.id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
     const { error: uploadError } = await supabase.storage.from("uploads").upload(path, file, {
