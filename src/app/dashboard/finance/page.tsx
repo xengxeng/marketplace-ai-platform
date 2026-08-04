@@ -1,11 +1,16 @@
 import { AccessRestricted } from "@/components/dashboard/access-restricted";
+import { DataLoadError } from "@/components/dashboard/data-load-error";
 import { FinancePanel } from "@/components/dashboard/finance-panel";
 import { getSessionProfile } from "@/lib/auth/require-role";
 
 const ALLOWED_ROLES = ["finance_admin", "admin", "super_admin"];
 
 export default async function FinanceDashboardPage() {
-  const { role } = await getSessionProfile();
+  const { role, error } = await getSessionProfile();
+
+  if (error) {
+    return <DataLoadError title="We couldn't check your access" message={error} />;
+  }
 
   if (!ALLOWED_ROLES.includes(role ?? "")) {
     return <AccessRestricted requiredRoles={ALLOWED_ROLES} />;

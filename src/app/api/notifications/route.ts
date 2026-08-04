@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { withErrorHandling } from "@/lib/api/handler";
+import { logError } from "@/lib/observability/log";
 
-export async function GET() {
+const SCOPE = "api/notifications";
+
+export const GET = withErrorHandling(SCOPE, async () => {
   const supabase = await createServerSupabaseClient();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
@@ -19,8 +23,9 @@ export async function GET() {
     .limit(20);
 
   if (error) {
+    logError(SCOPE, error, { step: "list_notifications" });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ notifications: data ?? [] });
-}
+});

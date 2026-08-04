@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { logError } from "@/lib/observability/log";
+
+const SCOPE = "orders/[id]";
 
 type OrderItemRow = {
   id: string;
@@ -31,16 +34,31 @@ export default async function OrderConfirmationPage({ params }: { params: Promis
     );
   }
 
-  const { data: order } = await supabase.from("orders").select("id, status, total_cents, created_at").eq("id", id).maybeSingle();
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, status, total_cents, created_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  // A lookup failure is not a missing order: reporting it as a 404 would tell a
+  // shopper their order does not exist right after they paid for it.
+  if (orderError) {
+    logError(SCOPE, orderError, { orderId: id, step: "fetch_order" });
+    throw new Error(`Unable to load order ${id}: ${orderError.message}`);
+  }
 
   if (!order) {
     notFound();
   }
 
-  const { data: items } = await supabase
+  const { data: items, error: itemsError } = await supabase
     .from("order_items")
     .select("id, quantity, unit_price_cents, subtotal_cents, products(name)")
     .eq("order_id", id);
+
+  if (itemsError) {
+    logError(SCOPE, itemsError, { orderId: id, step: "fetch_order_items" });
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-6 py-10 sm:px-8 lg:px-10">
@@ -51,6 +69,12 @@ export default async function OrderConfirmationPage({ params }: { params: Promis
           Order <span className="text-white">{order.id}</span> · Status{" "}
           <span className="capitalize text-white">{order.status}</span>
         </p>
+
+        {itemsError ? (
+          <p className="mt-8 text-sm text-red-300">
+            We couldn&apos;t load the line items for this order: {itemsError.message}
+          </p>
+        ) : null}
 
         <div className="mt-8 space-y-3">
           {(items as OrderItemRow[] | null)?.map((item) => (

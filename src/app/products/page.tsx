@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { AddToCartButton } from "@/components/storefront/add-to-cart-button";
+import { logError } from "@/lib/observability/log";
+
+const SCOPE = "products";
 
 type ProductRow = {
   id: string;
@@ -31,6 +34,10 @@ export default async function ProductsPage() {
         .eq("status", "active")
         .order("created_at", { ascending: false })
     : { data: null, error: null };
+
+  if (error) {
+    logError(SCOPE, error, { step: "list_products" });
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 sm:px-8 lg:px-10">

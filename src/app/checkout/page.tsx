@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 type CartItem = {
   id: string;
@@ -27,11 +28,12 @@ export default function CheckoutPage() {
     async function loadCart() {
       try {
         const res = await fetch("/api/cart");
-        const body = await res.json();
 
         if (!res.ok) {
-          throw new Error(body.error ?? "Unable to load cart.");
+          throw await responseError(res, "Unable to load cart.");
         }
+
+        const body = await res.json();
 
         setItems(body.items ?? []);
         setTotalCents(body.totalCents ?? 0);
@@ -51,10 +53,15 @@ export default function CheckoutPage() {
 
     try {
       const res = await fetch("/api/checkout", { method: "POST" });
-      const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body.error ?? "Unable to place order.");
+        throw await responseError(res, "Unable to place order.");
+      }
+
+      const body = await res.json();
+
+      if (!body.orderId) {
+        throw new Error("The order was not confirmed. Check your orders before trying again.");
       }
 
       router.push(`/orders/${body.orderId}`);

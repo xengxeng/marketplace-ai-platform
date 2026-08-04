@@ -12,7 +12,7 @@ const ACTION_LABEL: Record<string, string> = {
   order_status_changed: "Order status changed",
 };
 
-export function ActivityLogPanel({ logs }: { logs: LogEntry[] }) {
+export function ActivityLogPanel({ logs, error }: { logs: LogEntry[]; error?: string | null }) {
   return (
     <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.04] p-6 sm:p-8">
       <div className="flex items-center justify-between">
@@ -23,7 +23,9 @@ export function ActivityLogPanel({ logs }: { logs: LogEntry[] }) {
         <span className="text-xs font-medium text-zinc-500">{logs.length} events</span>
       </div>
 
-      {logs.length === 0 ? (
+      {error ? (
+        <p className="mt-6 text-sm text-red-300">Unable to load the audit trail: {error}</p>
+      ) : logs.length === 0 ? (
         <p className="mt-6 text-sm text-zinc-400">No activity recorded yet.</p>
       ) : (
         <div className="mt-6 space-y-2">

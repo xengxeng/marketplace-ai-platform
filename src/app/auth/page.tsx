@@ -1,16 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { responseError } from "@/lib/http/response-error";
 
-export default function AuthPage() {
+const CALLBACK_ERRORS: Record<string, string> = {
+  missing_code: "That sign-in link was incomplete. Request a new one below.",
+  supabase_not_configured: "Sign-in is unavailable because Supabase is not configured.",
+  auth_callback_failed: "That sign-in link is invalid or has expired. Request a new one below.",
+  profile_setup_failed: "We signed you in but could not finish setting up your profile. Please try again.",
+};
+
+function AuthPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackError = searchParams.get("error");
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // The callback route redirects here with ?error=<reason> when the exchange or
+  // profile setup fails; without this the failure is invisible to the user.
+  const callbackErrorMessage = callbackError
+    ? CALLBACK_ERRORS[callbackError] ?? "Sign-in failed. Please request a new link."
+    : "";
+  const visibleError = error || callbackErrorMessage;
 
   const isGmailAddress = (value: string) => /@(gmail|googlemail)\.com$/i.test(value);
 
@@ -41,7 +58,7 @@ export default function AuthPage() {
         return;
       }
 
-      await fetch("/api/auth/profile", {
+      const res = await fetch("/api/auth/profile", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -51,6 +68,14 @@ export default function AuthPage() {
           role: "guest",
         }),
       });
+
+      // Continuing to the dashboard without a profile row leaves the user with
+      // no role and no explanation for why nothing works.
+      if (!res.ok) {
+        const profileError = await responseError(res, "Unable to finish setting up your profile.");
+        setError(profileError.message);
+        return;
+      }
 
       router.push("/dashboard");
     });
@@ -129,7 +154,7 @@ export default function AuthPage() {
             Check your Gmail inbox and click the sign-in link to continue. The link expires shortly and can only be used once.
           </p>
         ) : null}
-        {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
+        {visibleError ? <p className="mt-4 text-sm text-red-300">{visibleError}</p> : null}
 
         <div className="mt-6 flex items-center justify-between text-sm text-zinc-400">
           <span>New merchant or reseller? Start from the dashboard.</span>
@@ -137,5 +162,13 @@ export default function AuthPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageContent />
+    </Suspense>
   );
 }

@@ -1,26 +1,30 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getSessionProfile } from "@/lib/auth/require-role";
+import { requireRoles } from "@/lib/api/session";
 import { logActivity } from "@/lib/activity/log";
+import { readJsonBody } from "@/lib/api/json";
+import { withErrorHandling } from "@/lib/api/handler";
+import { logError } from "@/lib/observability/log";
 
+const SCOPE = "api/orders/[id]/status";
 const VALID_STATUSES = ["pending", "paid", "fulfilled", "cancelled"];
 const TERMINAL_STATUSES = ["fulfilled", "cancelled"];
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withErrorHandling(SCOPE, async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
-  const { user, role } = await getSessionProfile();
-
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const session = await requireRoles(["admin", "super_admin"]);
+  if (!session.ok) {
+    return session.response;
   }
 
-  if (!["admin", "super_admin"].includes(role ?? "")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const parsed = await readJsonBody<{ status?: unknown }>(request, SCOPE);
+  if (!parsed.ok) {
+    return parsed.response;
   }
 
-  const { status } = await request.json();
+  const { status } = parsed.data;
 
-  if (!VALID_STATUSES.includes(status)) {
+  if (typeof status !== "string" || !VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
@@ -31,7 +35,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data: existing, error: fetchError } = await supabase.from("orders").select("status, customer_id").eq("id", id).maybeSingle();
 
-  if (fetchError || !existing) {
+  if (fetchError) {
+    logError(SCOPE, fetchError, { orderId: id, step: "fetch_order" });
+    return NextResponse.json({ error: fetchError.message }, { status: 500 });
+  }
+
+  if (!existing) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
@@ -42,19 +51,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { error: updateError } = await supabase.from("orders").update({ status }).eq("id", id);
 
   if (updateError) {
+    logError(SCOPE, updateError, { orderId: id, step: "update_status" });
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   await logActivity(supabase, {
-    actorId: user.id,
+    actorId: session.user.id,
     action: "order_status_changed",
     targetType: "order",
     targetId: id,
     metadata: { from: existing.status, to: status },
   });
 
-  if (["fulfilled", "cancelled"].includes(status)) {
-    await supabase.rpc("notify", {
+  if (TERMINAL_STATUSES.includes(status)) {
+    const { error: notifyError } = await supabase.rpc("notify", {
       p_recipient_id: existing.customer_id,
       p_title: status === "fulfilled" ? "Order fulfilled" : "Order cancelled",
       p_body:
@@ -63,7 +73,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
           : `Your order ${id.slice(0, 8)} was cancelled.`,
       p_link: `/orders/${id}`,
     });
+
+    // The status change already committed, so a notification failure must not
+    // fail the request — but it must be visible in the logs.
+    if (notifyError) {
+      logError(SCOPE, notifyError, { orderId: id, step: "notify" });
+    }
   }
 
   return NextResponse.json({ ok: true });
-}
+});

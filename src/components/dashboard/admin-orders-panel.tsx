@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 type Order = {
   id: string;
@@ -34,11 +35,12 @@ export function AdminOrdersPanel() {
 
     try {
       const res = await fetch("/api/orders");
-      const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load orders.");
+        throw await responseError(res, "Unable to load orders.");
       }
+
+      const body = await res.json();
 
       setOrders(body.orders ?? []);
     } catch (err) {
@@ -63,8 +65,7 @@ export function AdminOrdersPanel() {
       });
 
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to update order.");
+        throw await responseError(res, "Unable to update order.");
       }
 
       await loadOrders();

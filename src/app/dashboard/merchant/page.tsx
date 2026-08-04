@@ -1,7 +1,11 @@
 import { ComingSoonPanel } from "@/components/dashboard/coming-soon-panel";
+import { DataLoadError } from "@/components/dashboard/data-load-error";
 import { MerchantApplyForm } from "@/components/storefront/merchant-apply-form";
 import { getSessionProfile } from "@/lib/auth/require-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { logError } from "@/lib/observability/log";
+
+const SCOPE = "dashboard/merchant";
 
 // Any authenticated user (already enforced by the dashboard layout) can load
 // this page: someone with no merchant record yet needs to reach the apply
@@ -9,12 +13,23 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 // page's own state (no record / pending / suspended / verified) is the real
 // gate on what content and capability the visitor gets.
 export default async function MerchantDashboardPage() {
-  const { user } = await getSessionProfile();
+  const { user, error: sessionError } = await getSessionProfile();
+
+  if (sessionError) {
+    return <DataLoadError title="We couldn't verify your session" message={sessionError} />;
+  }
 
   const supabase = await createServerSupabaseClient();
-  const { data: merchant } = supabase && user
+  const { data: merchant, error: merchantError } = supabase && user
     ? await supabase.from("merchants").select("business_name, status").eq("owner_id", user.id).maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+
+  // A failed lookup used to fall through to the apply form, so an existing
+  // merchant was invited to re-apply and then rejected with a 409.
+  if (merchantError) {
+    logError(SCOPE, merchantError, { step: "fetch_merchant", userId: user?.id });
+    return <DataLoadError title="We couldn't load your merchant profile" message={merchantError.message} />;
+  }
 
   if (!merchant) {
     return <MerchantApplyForm />;

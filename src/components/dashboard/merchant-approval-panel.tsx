@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 type Merchant = {
   id: string;
@@ -28,11 +29,12 @@ export function MerchantApprovalPanel() {
 
     try {
       const res = await fetch("/api/merchants");
-      const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load merchants.");
+        throw await responseError(res, "Unable to load merchants.");
       }
+
+      const body = await res.json();
 
       setMerchants(body.merchants ?? []);
     } catch (err) {
@@ -57,8 +59,7 @@ export function MerchantApprovalPanel() {
       });
 
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to update merchant.");
+        throw await responseError(res, "Unable to update merchant.");
       }
 
       await load();

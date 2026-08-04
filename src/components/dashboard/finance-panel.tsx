@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 type Commission = {
   id: string;
@@ -43,11 +44,12 @@ export function FinancePanel() {
 
     try {
       const [commissionsRes, ledgerRes] = await Promise.all([fetch("/api/commissions"), fetch("/api/wallet-ledger")]);
+
+      if (!commissionsRes.ok) throw await responseError(commissionsRes, "Unable to load commissions.");
+      if (!ledgerRes.ok) throw await responseError(ledgerRes, "Unable to load wallet ledger.");
+
       const commissionsBody = await commissionsRes.json();
       const ledgerBody = await ledgerRes.json();
-
-      if (!commissionsRes.ok) throw new Error(commissionsBody.error ?? "Unable to load commissions.");
-      if (!ledgerRes.ok) throw new Error(ledgerBody.error ?? "Unable to load wallet ledger.");
 
       setCommissions(commissionsBody.commissions ?? []);
       setLedger(ledgerBody.entries ?? []);
@@ -68,8 +70,7 @@ export function FinancePanel() {
     try {
       const res = await fetch(`/api/commissions/${id}/approve`, { method: "POST" });
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to approve commission.");
+        throw await responseError(res, "Unable to approve commission.");
       }
       await load();
     } catch (err) {

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { responseError } from "@/lib/http/response-error";
 
 type CartItem = {
   id: string;
@@ -30,11 +31,12 @@ export default function CartPage() {
 
     try {
       const res = await fetch("/api/cart");
-      const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(body.error ?? "Unable to load cart.");
+        throw await responseError(res, "Unable to load cart.");
       }
+
+      const body = await res.json();
 
       setItems(body.items ?? []);
       setTotalCents(body.totalCents ?? 0);
@@ -55,8 +57,7 @@ export default function CartPage() {
     try {
       const res = await fetch(`/api/cart/items/${itemId}`, { method: "DELETE" });
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Unable to remove item.");
+        throw await responseError(res, "Unable to remove item.");
       }
       await loadCart();
     } catch (err) {
